@@ -1,6 +1,7 @@
 export interface ImageAnalysis {
   productCategory: string;
   productType: string;
+  displayMode: string;
   primaryColors: string[];
   pattern: string;
   styleKeywords: string[];

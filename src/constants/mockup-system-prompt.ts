@@ -125,23 +125,55 @@ export const toGenerateMockupPrompts = (
   return `Generate exactly ${mockupCount} DIFFERENT mockup prompts for this product:
 ${JSON.stringify(analysis)}
 
-CORE RULE: This is BACKGROUND REPLACEMENT ONLY. The product in ALL mockups MUST be a 100% identical visual copy of the reference image — same shape, size, proportions, colors, pattern, print placement, material, and texture. No redesign, recolor, distortion, or reinterpretation.
+=== ABSOLUTE RULE - READ FIRST ===
+This task is STRICTLY a BACKGROUND REPLACEMENT. The product MUST appear as a FIXED, UNCHANGED OBJECT pasted into a new scene.
+The model is FORBIDDEN from redrawing, redesigning, restyling, reinterpreting, or reimagining the product in ANY way.
+The product in every mockup MUST be a DIRECT VISUAL COPY of the reference image - identical in:
+  - shape, size, and proportions
+  - all colors and color placement
+  - all printed graphics, patterns, and artwork
+  - print size and position on the product
+  - material appearance and texture
+  - borders, trims, and finishing details
+Any mockup that alters the product in any of the above ways is INVALID and must be discarded.
 
-BACKGROUND DIVERSITY (REQUIRED): Each mockup MUST have a visually distinct background. Changing only camera angle or light intensity does NOT count as a different background. Each mockup MUST have one clear, different theme.
+=== BACKGROUND DIVERSITY (REQUIRED) ===
+Each of the ${mockupCount} mockups MUST have a clearly different background/setting/theme.
+Changing only camera angle, crop, or light intensity does NOT count as a different background.
+Each mockup must have one distinct theme that is visually distinguishable from all others.
 
-DISPLAY MODE = "${analysis.displayMode}":
+=== DISPLAY MODE: "${analysis.displayMode}" ===
 ${displayModeRules}
 
-PRODUCT-SPECIFIC OVERRIDES (apply only when relevant):
-- Window decor / suncatcher: MUST hang in front of a window, backlit by natural daylight showing transparency and color refraction. Different window frame style per mockup. Never on tables or walls without windows.
-- Apparel / textiles: laid flat, folded, or hung only. No human interaction implied.
-- Car visor (clip-on, productType = "car visor"): Inside car interior ONLY. Clipped to sun visor. A hand MAY hold or lightly support the visor but must NOT cover the product design. No face, body, or motion. Close-up, tightly framed.
+=== DISPLAY & PLACEMENT RULES ===
+- Placement must respect gravity, real-world scale, and realistic product usage.
+- Do NOT show the product in a context where it would not logically exist.
+- Do NOT add props, objects, or decorative elements that touch, overlap, or distract from the product.
+- The product MUST dominate the visual hierarchy of the image at all times.
 
-LIGHTING & COMPOSITION: Soft, natural, commercial product photography lighting. Even illumination, accurate colors. No dramatic shadows or cinematic lighting. Minimalist framing — product dominates the visual hierarchy.
+=== PRODUCT-SPECIFIC OVERRIDES (apply only when relevant) ===
+- Window decor / suncatcher: MUST hang in front of a window, backlit by natural daylight showing transparency and color refraction. Different window frame style per mockup (wood, white, modern, vintage). Never on tables, walls without windows, or outdoors.
+- Apparel / textiles: laid flat, folded, or hung only. Do NOT imply wearing, holding, or human interaction.
+- Car visor (clip-on, productType = "car visor"): Inside car interior ONLY. Product MUST be clipped directly onto the sun visor. A hand MAY hold or lightly support the visor but must NOT cover or overlap the product design. No face, body, or motion. Close-up, tightly framed around the product.
+- Home goods: placed or folded in a clean, realistic indoor setting only.
 
-RESTRICTIONS: No lifestyle storytelling. No copyrighted characters, brands, trademarks, or watermarks. No elements competing with or distracting from the product.
+=== LIGHTING & COMPOSITION ===
+- Soft, natural, commercial product photography lighting.
+- Even illumination with accurate color representation.
+- No dramatic shadows, no artificial glow, no cinematic or moody lighting.
+- Minimalist framing. Clear subject separation. Product dominates the frame.
 
-VALIDATION: displayMode = "product_only" → any human presence = INVALID. displayMode = "worn" → product must remain visually dominant.
+=== RESTRICTIONS ===
+- No lifestyle storytelling or emotional narrative.
+- No copyrighted characters, brands, trademarks, logos, or watermarks.
+- Do NOT add or remove any text, graphics, or markings on the product.
+- No elements that compete with or visually distract from the product.
+
+=== FINAL VALIDATION (check every prompt before outputting) ===
+- Is the product visually identical to the reference image? If NO, rewrite.
+- If displayMode = "product_only": any human presence = INVALID, rewrite.
+- If displayMode = "worn": is the product still the dominant visual element? If NO, rewrite.
+- Is this background clearly different from all other mockups in the set? If NO, rewrite.
 
 OUTPUT: Return ONLY a JSON array of strings. Write EVERYTHING in Vietnamese.`;
 };

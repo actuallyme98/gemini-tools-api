@@ -4,34 +4,35 @@ import {
   ANALYZE_PRODUCT_FROM_IMAGE_PROMPT,
   toGenerateMockupPrompts,
 } from 'src/constants/mockup-system-prompt';
-
 import { Idea, ImageAnalysis } from './types';
 
 @Injectable()
 export class GeminiService {
-  private openai: any;
+  private genai: any;
+  private modelText: string;
+  private modelMultimodal: string;
+  private modelImage: string;
 
   constructor(private readonly config: ConfigService) {}
 
   async onModuleInit() {
     const { GoogleGenAI } = await import('@google/genai');
-
     const apiKey = this.config.get<string>('GEMINI_API_KEY');
+    this.genai = new GoogleGenAI({ apiKey });
 
-    this.openai = new GoogleGenAI({ apiKey });
+    this.modelText = this.config.get('GEMINI_MODEL_TEXT', 'gemini-2.5-flash-lite');
+    this.modelMultimodal = this.config.get('GEMINI_MODEL_MULTIMODAL', 'gemini-2.5-flash');
+    this.modelImage = this.config.get('GEMINI_MODEL_IMAGE', 'gemini-2.5-flash-image');
   }
 
   async generateImage(prompt: string): Promise<Buffer> {
-    const response = await this.openai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+    const response = await this.genai.models.generateContent({
+      model: this.modelImage,
       contents: prompt,
     });
     for (const part of response.candidates[0].content.parts) {
-      if (part.text) {
-      } else if (part.inlineData) {
-        const imageData = part.inlineData.data;
-        const buffer = Buffer.from(imageData, 'base64');
-        return buffer;
+      if (part.inlineData) {
+        return Buffer.from(part.inlineData.data, 'base64');
       }
     }
   }
@@ -45,8 +46,7 @@ export class GeminiService {
     }[];
     variations?: number;
   }): Promise<Buffer[]> {
-    const { variations, productImageBase64, productMimeType, referenceImages } =
-      params;
+    const { productImageBase64, productMimeType, referenceImages } = params;
 
     const normalizeBase64 = (b64: string) =>
       b64.includes(',') ? b64.split(',')[1] : b64;
@@ -58,41 +58,39 @@ export class GeminiService {
       You are editing the FIRST image only.
 
       The first image is the original product image.
-      Preserve the product’s design, colors, patterns, proportions, and details exactly.
+      Preserve the product's design, colors, patterns, proportions, and details exactly.
       Do NOT redraw, reinterpret, stylize, or modify the product in any way.
-      
+
       All other images are for visual reference and inspiration only
       (e.g. lighting, composition, mood).
       Do NOT copy subjects, objects, characters, or exact layouts from reference images.
-      
+
       Replace the background with a clean, solid studio background.
-      
+
       Default background color: pure white.
-      
+
       If the product is white or very light-colored,
       automatically choose a different neutral background color
       (light gray, beige, or soft pastel)
       to ensure strong contrast and clear visibility of the product.
-      
+
       The background must be:
       - smooth
       - uniform
       - flat color only
       - no texture, no gradient, no pattern
-      
+
       Add soft, realistic studio lighting and a subtle natural shadow
       to ground the product.
-      
+
       ABSOLUTELY NO text, logos, watermarks, symbols, or repeating patterns.
-      
+
       The final image must look like a professional e-commerce product photo,
-      clean, minimal, and ready for product listing.      
+      clean, minimal, and ready for product listing.
     `,
     });
 
-    parts.push({
-      text: 'Đây là ảnh mẫu sản phẩm gốc: ',
-    });
+    parts.push({ text: 'Đây là ảnh mẫu sản phẩm gốc: ' });
     parts.push({
       inlineData: {
         mimeType: productMimeType,
@@ -120,14 +118,9 @@ export class GeminiService {
       }
     }
 
-    const response = await this.openai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
-      contents: [
-        {
-          role: 'user',
-          parts,
-        },
-      ],
+    const response = await this.genai.models.generateContent({
+      model: this.modelImage,
+      contents: [{ role: 'user', parts }],
     });
 
     const resultParts = response.candidates?.[0]?.content?.parts;
@@ -137,7 +130,6 @@ export class GeminiService {
     }
 
     const images: Buffer[] = [];
-
     for (const part of resultParts) {
       if (part.inlineData?.data) {
         images.push(Buffer.from(part.inlineData.data, 'base64'));
@@ -160,19 +152,14 @@ export class GeminiService {
       ? params.base64Image.split(',')[1]
       : params.base64Image;
 
-    const response = await this.openai.models.generateContent({
-      model: 'gemini-2.5-flash-image',
+    const response = await this.genai.models.generateContent({
+      model: this.modelImage,
       contents: [
         {
           role: 'user',
           parts: [
             { text: params.prompt },
-            {
-              inlineData: {
-                mimeType: params.mimeType,
-                data: base64Data,
-              },
-            },
+            { inlineData: { mimeType: params.mimeType, data: base64Data } },
           ],
         },
       ],
@@ -195,22 +182,14 @@ export class GeminiService {
 
   async analyzeProductFromImage(file: Express.Multer.File) {
     const base64 = file.buffer.toString('base64');
-
-    const result = await this.openai.models.generateContent({
-      model: 'gemini-2.5-flash',
+    const result = await this.genai.models.generateContent({
+      model: this.modelMultimodal,
       contents: [
         {
           role: 'user',
           parts: [
-            {
-              text: ANALYZE_PRODUCT_FROM_IMAGE_PROMPT,
-            },
-            {
-              inlineData: {
-                mimeType: file.mimetype,
-                data: base64,
-              },
-            },
+            { text: ANALYZE_PRODUCT_FROM_IMAGE_PROMPT },
+            { inlineData: { mimeType: file.mimetype, data: base64 } },
           ],
         },
       ],
@@ -225,28 +204,18 @@ export class GeminiService {
   ): Promise<string[]> {
     const prompt = toGenerateMockupPrompts(analysis, mockupCount);
 
-    const response = await this.openai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: prompt }],
-        },
-      ],
+    const response = await this.genai.models.generateContent({
+      model: this.modelText,
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
     });
 
     return this.parseGeminiJSON(response);
   }
 
   async generateIdeasFromAttributes(basePrompt: string): Promise<Idea[]> {
-    const response = await this.openai.models.generateContent({
-      model: 'gemini-2.5-flash',
-      contents: [
-        {
-          role: 'user',
-          parts: [{ text: basePrompt }],
-        },
-      ],
+    const response = await this.genai.models.generateContent({
+      model: this.modelText,
+      contents: [{ role: 'user', parts: [{ text: basePrompt }] }],
     });
 
     return this.parseGeminiJSON(response);

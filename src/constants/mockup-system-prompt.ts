@@ -109,271 +109,35 @@ export const toGenerateMockupPrompts = (
   analysis: ImageAnalysis,
   mockupCount: number,
 ) => {
-  return `Product profile (from uploaded image):
-  ${JSON.stringify(analysis, null, 2)}
-  
-  Generate exactly ${mockupCount} DIFFERENT mockup prompts.
+  const displayModeRules =
+    analysis.displayMode === ‘worn’
+      ? ‘- Include a human model wearing the EXACT product. Upper body or half body, face visible. Natural American lifestyle vibe. Product is PRIMARY, model is SECONDARY.\n’ +
+        ‘- Prioritize outdoor environments (parks, plazas, walkways, streets, open-air cafés). Indoor only if product theme requires it.\n’ +
+        ‘- At most ONE prompt may include TWO people — both must wear the identical product (same type/material/colors/pattern), different faces. No more than two people total.’
+      : ‘- Show product ALONE. NO human presence of any kind — no faces, hands, body parts, silhouettes, shadows, or reflections.\n’ +
+        ‘- Use only realistic display methods: flat lay, folded, hanging, or placed on a clean neutral surface. No props touching or overlapping the product.\n’ +
+        ‘- Background: simple, clean, non-distracting — plain surfaces (wood, fabric, stone, paper, glass) or minimal indoor settings.’;
 
-  IMPORTANT REFERENCE RULE (ABSOLUTE - READ CAREFULLY):
-- The uploaded image is a HARD, LOCKED visual reference.
-- The product in ALL generated mockups MUST be a DIRECT VISUAL COPY of the uploaded image.
-- Treat the uploaded product as a FIXED OBJECT that is pasted into new scenes.
-- This task is STRICTLY a BACKGROUND REPLACEMENT.
-- The model is NOT allowed to redraw, reconstruct, redesign, or reinterpret the product under ANY circumstances.
-  
-  ────────────────────────────────
-  DISPLAY MODE (CRITICAL - NO ASSUMPTIONS)
-  ────────────────────────────────
-  - displayMode = "product_only":
-    Do NOT include people.
-    Do NOT include faces, hands, body parts, silhouettes, reflections, or shadows.
-    Do NOT describe wearing, holding, touching, or any human interaction.
-    Focus ONLY on the product itself.
-  
-  - displayMode = "worn":
-    Include a human model wearing the EXACT product.
-    The product must remain visually dominant at all times.
-  
-  ────────────────────────────────
-  PRODUCT FOCUS RULE (VERY IMPORTANT)
-  ────────────────────────────────
-  - The PRODUCT must be the clear visual center of the image.
-  - The image must communicate the PRODUCT clearly, NOT a lifestyle story.
-  - Do NOT add any elements that visually compete with or distract from the product.
-  
-  ────────────────────────────────
-  RULES FOR displayMode = "product_only"
-  (UNIVERSAL - APPLY TO ALL PRODUCTS)
-  ────────────────────────────────
-  
-  PRODUCT PRESERVATION (ABSOLUTE):
-  - The product MUST remain 100% IDENTICAL to the uploaded image.
-  - Do NOT alter, modify, or reinterpret ANY of the following:
-    • shape
-    • size
-    • proportions
-    • colors
-    • pattern / graphics
-    • print placement
-    • material appearance
-    • texture
-  - No redesign, recolor, distortion, cropping, stylization, or artistic reinterpretation.
-  - This is a MOCKUP BACKGROUND replacement, NOT a new product design.
-  
-  NO HUMAN PRESENCE:
-  - Do NOT include people of any kind.
-  - Do NOT include faces, hands, body parts, reflections, silhouettes, or human shadows.
-  - Do NOT imply usage through interaction or motion.
-  
-  DISPLAY & PLACEMENT (REALISTIC ONLY):
-  - Show the product ALONE.
-  - Use ONLY physically realistic, commercially plausible display methods:
-    • laid flat
-    • neatly folded
-    • hanging
-    • placed on a clean, neutral surface
-  - Placement must respect gravity, scale, and real-world usage.
-  - Do NOT add props that touch, overlap, or interact with the product.
-  
-  ────────────────────────────────
-  BACKGROUND RULE (CONTROLLED + DIVERSITY REQUIRED)
-  ────────────────────────────────
-  - Background must be SIMPLE, CLEAN, and NON-DISTRACTING.
-  - Background must SUPPORT the product’s real-world function.
-  - Allowed background styles:
-    • plain or neutral surfaces (wood, fabric, stone, paper, glass)
-    • minimal indoor environments relevant to the product category
-    • soft, unobtrusive natural or indoor settings
-  - Do NOT include:
-    • busy scenes
-    • lifestyle storytelling
-    • decorative clutter
-    • irrelevant environments
-  
-  BACKGROUND DIVERSITY (MANDATORY – VERY IMPORTANT):
-  - EACH mockup MUST use a CLEARLY DIFFERENT background.
-  - Background differences MUST be obvious and visually distinguishable.
-  - Differences may include (but are not limited to):
-    • different window frame styles or materials
-    • different room contexts
-    • different outdoor scenery visible through glass
-    • different time of day (morning / afternoon / golden hour)
-    • different daylight quality (soft, diffused, direct)
-  - Changing ONLY camera angle or crop is NOT considered a different background.
-  - Changing ONLY light intensity without environmental change is NOT sufficient.
-  
-  ────────────────────────────────
-  PRODUCT-SPECIFIC FUNCTIONAL CONSTRAINTS (CRITICAL)
-  ────────────────────────────────
-  - The display context MUST match the product’s REAL functional use.
-  
-  - Window decor / suncatcher:
-    • MUST be hanging in front of a window or glass surface.
-    • MUST be backlit by natural daylight passing through the product.
-    • Light must reveal transparency and color refraction.
-    • EACH mockup MUST use a DIFFERENT window background.
-    • Allowed variations:
-      - different window frame styles (wood, white, modern, vintage)
-      - different room contexts (kitchen, living room, sunroom)
-      - different exterior scenery seen through glass
-      - different daylight conditions
-    • Do NOT place:
-      - on tables
-      - on walls without windows
-      - in gardens
-      - in open outdoor environments
-  
-  - Apparel / textiles:
-    • MUST be laid flat, folded, or hung.
-    • Do NOT imply wearing or human presence.
-  
-  - Home goods:
-    • MUST be placed or folded in a clean, realistic indoor setting.
-  
-  - Do NOT place any product in an environment where it would not logically exist.
-  
-  ────────────────────────────────
-  LIGHTING
-  ────────────────────────────────
-  - Soft, natural, commercial product photography lighting.
-  - Even illumination with accurate color representation.
-  - No dramatic shadows, no artificial glow, no cinematic lighting.
-  
-  ────────────────────────────────
-  COMPOSITION
-  ────────────────────────────────
-  - Minimalist framing.
-  - Clear subject separation.
-  - The product MUST dominate the visual hierarchy.
-  
-  ────────────────────────────────
-  STYLE CONSTRAINT
-  ────────────────────────────────
-  - No lifestyle narrative.
-  - No emotional storytelling.
-  - Pure PRODUCT PRESENTATION only.
-  
-  ────────────────────────────────
-  RULES FOR displayMode = "worn"
-  ────────────────────────────────
-  - Focus on upper body or half body ONLY.
-  - Face must be clearly visible.
-  - Natural American lifestyle vibe.
-  - The model is SECONDARY; the product is PRIMARY.
-  
-  SCENE PRIORITY (WORN PRODUCTS ONLY):
-  - PRIORITIZE outdoor environments:
-    • parks
-    • public plazas
-    • outdoor walkways
-    • campuses
-    • streets
-    • open-air cafés
-  - Scene must feel open, breathable, and natural.
-  - Lighting should be natural daylight whenever possible.
-  
-  - Indoor scenes are ALLOWED ONLY IF:
-    • the product theme explicitly requires it
-    • OR outdoor placement would conflict with the product’s story.
-  
-  ADDITIONAL PEOPLE RULES:
-  - At most ONE prompt may include TWO people.
-  - If TWO people appear:
-    • BOTH must wear the EXACT SAME product.
-    • Keep the SAME product type: ${analysis.productType}
-    • Keep the SAME material: ${JSON.stringify(analysis.material)}
-    • Keep the SAME colors: ${analysis.primaryColors?.join(', ')}
-    • Keep the SAME pattern / graphics: ${analysis.pattern}
-    • Product must be visually identical in every detail.
-    • No color variation, no alternate versions.
-    • They must have different faces.
-  - Do NOT include more than two people.
+  return `Generate exactly ${mockupCount} DIFFERENT mockup prompts for this product:
+${JSON.stringify(analysis)}
 
-  ────────────────────────────────────────────────────────────────────────────────────────────────
-  CAR VISOR SPECIAL RULE (OVERRIDE – ONLY APPLY IF productType = "car visor"):
-  ────────────────────────────────────────────────────────────────────────────────────────────────
-  PRODUCT TYPE CLARIFICATION:
-  - The product is a CLIP-ON car visor accessory.
-  - The product MUST be clipped directly onto the car sun visor.
-  - Do NOT describe or imply hanging strings, cords, chains, or dangling suspension.
+CORE RULE: This is BACKGROUND REPLACEMENT ONLY. The product in ALL mockups MUST be a 100% identical visual copy of the reference image — same shape, size, proportions, colors, pattern, print placement, material, and texture. No redesign, recolor, distortion, or reinterpretation.
 
-  DISPLAY & CAMERA DISTANCE:
-  - Background MUST be close-up and tightly framed around the product.
-  - Camera should be positioned at near-field distance, similar to real e-commerce product inspection.
-  - The visor surface and clip mechanism must be clearly visible.
+BACKGROUND DIVERSITY (REQUIRED): Each mockup MUST have a visually distinct background. Changing only camera angle or light intensity does NOT count as a different background. Each mockup MUST have one clear, different theme.
 
-  ALLOWED ENVIRONMENTS:
-  - Inside car interior ONLY.
-  - Car sun visor area (primary).
-  - Neutral vehicle interior materials (fabric roof lining, visor texture).
-  - Background may include softly blurred windshield or car interior context.
+DISPLAY MODE = "${analysis.displayMode}":
+${displayModeRules}
 
-  HUMAN PRESENCE (LIMITED OVERRIDE):
-  - Human hand presence IS ALLOWED for car visor clip products ONLY.
-  - Hand may:
-    • hold the product near the visor before clipping
-    • lightly support the visor for scale reference
-  - Do NOT show:
-    • face
-    • body
-    • reflection
-    • identifiable human features
-  - Hand must NOT block, cover, distort, or overlap the product design.
-  - The product remains the dominant visual element at all times.
+PRODUCT-SPECIFIC OVERRIDES (apply only when relevant):
+- Window decor / suncatcher: MUST hang in front of a window, backlit by natural daylight showing transparency and color refraction. Different window frame style per mockup. Never on tables or walls without windows.
+- Apparel / textiles: laid flat, folded, or hung only. No human interaction implied.
+- Car visor (clip-on, productType = "car visor"): Inside car interior ONLY. Clipped to sun visor. A hand MAY hold or lightly support the visor but must NOT cover the product design. No face, body, or motion. Close-up, tightly framed.
 
-  PRODUCT PRESERVATION (ABSOLUTE):
-  - The product MUST remain 100% identical to the uploaded image.
-  - Do NOT alter:
-    • clip structure
-    • size or thickness
-    • acrylic shape
-    • printed image
-    • colors or text
-  - No bending, warping, angle distortion, or redesign.
+LIGHTING & COMPOSITION: Soft, natural, commercial product photography lighting. Even illumination, accurate colors. No dramatic shadows or cinematic lighting. Minimalist framing — product dominates the visual hierarchy.
 
-  BACKGROUND & STYLE:
-  - Background must be realistic, minimal, and non-distracting.
-  - No lifestyle storytelling.
-  - No driving or motion implication.
-  - Lighting must be soft, natural, commercial product photography.
-  - The image must communicate PRODUCT FUNCTION clearly (clip-on visor use).
+RESTRICTIONS: No lifestyle storytelling. No copyrighted characters, brands, trademarks, or watermarks. No elements competing with or distracting from the product.
 
-  NOTE:
-  This rule ONLY overrides:
-  - the "NO HUMAN PRESENCE" restriction
-  - the "DISTANT BACKGROUND" limitation
+VALIDATION: displayMode = "product_only" → any human presence = INVALID. displayMode = "worn" → product must remain visually dominant.
 
-  All other GLOBAL RULES remain fully enforced.
-
-  ────────────────────────────────
-  THEME REQUIREMENT
-  ────────────────────────────────
-  - Each mockup MUST have ONE clear theme.
-  - Themes MUST be DIFFERENT from each other.
-  - Background, lighting, and mood must support that theme.
-  - The prompt must describe the PRODUCT, not a human experience.
-  
-  ────────────────────────────────
-  FINAL VALIDATION (MANDATORY)
-  ────────────────────────────────
-  - If displayMode = "product_only", ANY human presence makes the prompt INVALID.
-  - If displayMode = "worn", the product must remain visually dominant.
-  - If two people appear, all additional people rules MUST be satisfied.
-  
-  ────────────────────────────────
-  GLOBAL RULES (VERY IMPORTANT)
-  ────────────────────────────────
-  - Keep the SAME product type: ${analysis.productType}
-  - Keep the SAME material: ${JSON.stringify(analysis.material)}
-  - Keep the SAME colors: ${analysis.primaryColors?.join(', ')}
-  - Keep the SAME pattern / graphics: ${analysis.pattern}
-  - Do NOT add or remove watermarks.
-  - Do NOT mention copyrighted characters, brands, or trademarks.
-  - Write EVERYTHING in Vietnamese.
-  
-  ────────────────────────────────
-  OUTPUT
-  ────────────────────────────────
-  Return ONLY a JSON array of strings.
-  `;
+OUTPUT: Return ONLY a JSON array of strings. Write EVERYTHING in Vietnamese.`;
 };

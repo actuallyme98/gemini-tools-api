@@ -1,4 +1,4 @@
-import { ImageAnalysis } from 'src/gemini/types';
+﻿import { ImageAnalysis } from 'src/gemini/types';
 
 export const ANALYZE_PRODUCT_FROM_IMAGE_PROMPT = `
 IMPORTANT RULES:
@@ -110,13 +110,17 @@ export const toGenerateMockupPrompts = (
   mockupCount: number,
 ) => {
   const displayModeRules =
-    analysis.displayMode === ‘worn’
-      ? ‘- Include a human model wearing the EXACT product. Upper body or half body, face visible. Natural American lifestyle vibe. Product is PRIMARY, model is SECONDARY.\n’ +
-        ‘- Prioritize outdoor environments (parks, plazas, walkways, streets, open-air cafés). Indoor only if product theme requires it.\n’ +
-        ‘- At most ONE prompt may include TWO people — both must wear the identical product (same type/material/colors/pattern), different faces. No more than two people total.’
-      : ‘- Show product ALONE. NO human presence of any kind — no faces, hands, body parts, silhouettes, shadows, or reflections.\n’ +
-        ‘- Use only realistic display methods: flat lay, folded, hanging, or placed on a clean neutral surface. No props touching or overlapping the product.\n’ +
-        ‘- Background: simple, clean, non-distracting — plain surfaces (wood, fabric, stone, paper, glass) or minimal indoor settings.’;
+    analysis.displayMode === 'worn'
+      ? [
+          '- Include a human model wearing the EXACT product. Upper body or half body, face visible. Natural American lifestyle vibe. Product is PRIMARY, model is SECONDARY.',
+          '- Prioritize outdoor environments (parks, plazas, walkways, streets, open-air cafes). Indoor only if product theme requires it.',
+          '- At most ONE prompt may include TWO people - both must wear the identical product (same type/material/colors/pattern), different faces. No more than two people total.',
+        ].join('\n')
+      : [
+          '- Show product ALONE. NO human presence of any kind - no faces, hands, body parts, silhouettes, shadows, or reflections.',
+          '- Use only realistic display methods: flat lay, folded, hanging, or placed on a clean neutral surface. No props touching or overlapping the product.',
+          '- Background: simple, clean, non-distracting - plain surfaces (wood, fabric, stone, paper, glass) or minimal indoor settings.',
+        ].join('\n');
 
   return `Generate exactly ${mockupCount} DIFFERENT mockup prompts for this product:
 ${JSON.stringify(analysis)}

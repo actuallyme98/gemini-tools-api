@@ -1,0 +1,38 @@
+name: gemini-tools
+services:
+  api:
+    image: ${API_IMAGE:?Deploy the API image first}
+    restart: unless-stopped
+    init: true
+    env_file: ${DEPLOY_PATH:?Set DEPLOY_PATH}/.env
+    environment:
+      NODE_ENV: production
+      PORT: '5177'
+    ports:
+      - '127.0.0.1:3021:5177'
+    mem_limit: 1g
+    cpus: 1.0
+    stop_grace_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  app:
+    image: ${APP_IMAGE:-ghcr.io/actuallyme98/gemini-tools-app:latest}
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: api:5177
+    ports:
+      - '127.0.0.1:3020:80'
+    depends_on:
+      api:
+        condition: service_healthy
+    mem_limit: 128m
+    cpus: 0.5
+    logging:
+      driver: json-file
+      options:
+        max-size: '5m'
+        max-file: '3'

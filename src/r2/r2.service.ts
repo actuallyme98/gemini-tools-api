@@ -10,7 +10,9 @@ export class R2Service {
   constructor(private readonly config: ConfigService) {
     this.client = new S3Client({
       region: 'auto',
-      endpoint: this.config.get<string>('R2_PRIVATE_URL'),
+      endpoint:
+        this.config.get<string>('R2_PRIVATE_URL') ||
+        `https://${this.config.get<string>('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com`,
       credentials: {
         accessKeyId: this.config.get<string>('R2_ACCESS_KEY_ID'),
         secretAccessKey: this.config.get<string>('R2_SECRET_ACCESS_KEY'),

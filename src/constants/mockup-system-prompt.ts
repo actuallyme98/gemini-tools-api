@@ -1,4 +1,4 @@
-﻿import { ImageAnalysis } from 'src/gemini/types';
+import type { ImageAnalysis } from '../ai/types';
 
 export const ANALYZE_PRODUCT_FROM_IMAGE_PROMPT = `
 IMPORTANT RULES:

@@ -1,10 +1,13 @@
+import type { Response } from 'express';
+import { requestSignal } from '../common/request-signal';
+import { multerConfig, requireImage } from '../common/multer.config';
 import {
   Controller,
   Post,
   UploadedFile,
   UseInterceptors,
   Body,
-  BadRequestException,
+  Res,
   UploadedFiles,
 } from '@nestjs/common';
 import {
@@ -14,14 +17,14 @@ import {
 import { ApiBody, ApiConsumes } from '@nestjs/swagger';
 
 import { IdeaService } from './idea.service';
-import { GenerateIdeaDTO } from './dto/create-idea.dto';
+import { GenerateIdeaDTO, ReferenceImagesDTO } from './dto/create-idea.dto';
 
 @Controller('ideas')
 export class IdeaController {
   constructor(private readonly ideaService: IdeaService) {}
 
   @Post('analyze-product')
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(FileInterceptor('image', multerConfig))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -36,15 +39,11 @@ export class IdeaController {
     },
   })
   async analyzeProductController(@UploadedFile() file: Express.Multer.File) {
-    if (!file) {
-      throw new BadRequestException('Image is required');
-    }
-
-    return this.ideaService.analyzeProductFromImage(file);
+    return this.ideaService.analyzeProductFromImage(requireImage(file));
   }
 
   @Post('generate-ideas')
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(FileInterceptor('image', multerConfig))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -54,6 +53,7 @@ export class IdeaController {
           type: 'string',
           format: 'binary',
         },
+        count: { type: 'integer', minimum: 1, maximum: 12, default: 3 },
         basePrompt: {
           type: 'string',
           example: '',
@@ -65,16 +65,25 @@ export class IdeaController {
   async generateIdeasController(
     @UploadedFile() file: Express.Multer.File,
     @Body() body: GenerateIdeaDTO,
+    @Res({ passthrough: true }) response: Response,
   ) {
-    return this.ideaService.generateIdeasFromImage(file, body.basePrompt);
+    return this.ideaService.generateIdeasFromImage(
+      requireImage(file),
+      body.basePrompt,
+      body.count,
+      requestSignal(response),
+    );
   }
 
   @Post('generate-images-from-referal-images')
   @UseInterceptors(
-    FileFieldsInterceptor([
-      { name: 'productImage', maxCount: 1 },
-      { name: 'referenceImages', maxCount: 10 },
-    ]),
+    FileFieldsInterceptor(
+      [
+        { name: 'productImage', maxCount: 1 },
+        { name: 'referenceImages', maxCount: 10 },
+      ],
+      multerConfig,
+    ),
   )
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -95,7 +104,10 @@ export class IdeaController {
           description: 'Reference images for style and idea inspiration',
         },
         variations: {
-          type: 'number',
+          type: 'integer',
+          minimum: 1,
+          maximum: 10,
+          default: 1,
           example: 3,
           description: 'Number of idea images to generate (default: 1)',
         },
@@ -109,16 +121,14 @@ export class IdeaController {
       productImage?: Express.Multer.File[];
       referenceImages?: Express.Multer.File[];
     },
-    @Body('variations') variations?: number,
+    @Body() body: ReferenceImagesDTO,
+    @Res({ passthrough: true }) response: Response,
   ) {
-    if (!files.productImage?.[0]) {
-      throw new BadRequestException('productImage is required');
-    }
-
     return this.ideaService.generateIdeasFromReferalImages({
-      productImage: files.productImage[0],
-      referenceImages: files.referenceImages,
-      variations: variations ? Number(variations) : undefined,
+      productImage: requireImage(files.productImage?.[0]),
+      referenceImages: files.referenceImages?.map((file) => requireImage(file)),
+      variations: body.variations,
+      signal: requestSignal(response),
     });
   }
 }

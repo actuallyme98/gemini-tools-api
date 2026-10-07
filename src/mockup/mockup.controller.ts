@@ -1,10 +1,13 @@
+import type { Response } from 'express';
+import { requestSignal } from '../common/request-signal';
+import { multerConfig, requireImage } from '../common/multer.config';
 import {
   Controller,
   Post,
   UploadedFile,
   UseInterceptors,
   Body,
-  BadRequestException,
+  Res,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes } from '@nestjs/swagger';
@@ -18,7 +21,7 @@ export class MockupController {
   constructor(private readonly mockupService: MockupService) {}
 
   @Post('/generate-prompts')
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(FileInterceptor('image', multerConfig))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -28,23 +31,28 @@ export class MockupController {
           type: 'string',
           format: 'binary',
         },
-        promptCount: {
+        count: {
           type: 'number',
           example: '5',
         },
       },
-      required: ['image', 'promptCount'],
+      required: ['image', 'count'],
     },
   })
   async generatePrompts(
     @UploadedFile() file: Express.Multer.File,
     @Body() body: GeneratePromptsDto,
+    @Res({ passthrough: true }) response: Response,
   ) {
-    return this.mockupService.generateMockupPrompts(file, body.count);
+    return this.mockupService.generateMockupPrompts(
+      requireImage(file),
+      body.count,
+      requestSignal(response),
+    );
   }
 
   @Post('generate-mockups')
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(FileInterceptor('image', multerConfig))
   @ApiConsumes('multipart/form-data')
   @ApiBody({
     schema: {
@@ -65,11 +73,12 @@ export class MockupController {
   async editBatch(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: EditImageBatchDto,
+    @Res({ passthrough: true }) response: Response,
   ) {
-    if (!file) {
-      throw new BadRequestException('Image is required');
-    }
-
-    return this.mockupService.generateMockups(file, dto.prompts);
+    return this.mockupService.generateMockups(
+      requireImage(file),
+      dto.prompts,
+      requestSignal(response),
+    );
   }
 }

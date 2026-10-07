@@ -1,0 +1,16 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      PORT: 5177
+    ports:
+      - "5177:5177"
+  app:
+    build: ../gemini-tools-app
+    environment:
+      API_UPSTREAM: api:5177
+    ports:
+      - "5173:80"
+    depends_on:
+      - api

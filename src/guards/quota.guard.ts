@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import {
   CanActivate,
   ExecutionContext,
@@ -11,9 +12,9 @@ export class QuotaGuard implements CanActivate {
   constructor(private redis: RedisService) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const req = ctx.switchToHttp().getRequest();
+    const req = ctx.switchToHttp().getRequest<Request>();
 
-    const userId = req.headers['x-user-id'] || req.ip;
+    const userId = req.get('x-user-id') || req.ip || 'unknown';
 
     const today = new Date().toISOString().slice(0, 10);
     const key = `quota:${userId}:${today}`;

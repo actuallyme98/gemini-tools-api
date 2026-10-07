@@ -1,0 +1,13 @@
+node_modules
+dist
+coverage
+.npm-cache
+.git
+.env
+.env.*
+!.env.example
+*.log
+scripts/.deploy-config
+**/*.pem
+**/*.key
+.github

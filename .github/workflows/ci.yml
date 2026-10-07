@@ -1,0 +1,40 @@
+name: CI
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [develop]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm run lint:check
+      - run: npm test -- --runInBand
+      - run: npm run test:e2e -- --runInBand
+      - run: bash test/deployment.test.sh
+      - run: npm run build
+      - name: Check deployment scripts
+        run: |
+          for script in scripts/*.sh deploy/*.sh test/deployment.test.sh; do bash -n "$script"; done
+          shellcheck scripts/*.sh deploy/*.sh test/deployment.test.sh
+      - name: Test production container
+        run: |
+          docker build -t gemini-tools-api:ci .
+          bash scripts/container-smoke.sh gemini-tools-api:ci

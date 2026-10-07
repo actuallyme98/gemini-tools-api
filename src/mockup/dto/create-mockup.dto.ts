@@ -1,16 +1,9 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { Transform } from 'class-transformer';
+import { Type } from 'class-transformer';
 import { IsInt, Min, Max } from 'class-validator';
-
 export class GeneratePromptsDto {
-  @ApiProperty({ example: 6 })
-  @Transform(({ value }) => {
-    if (typeof value === 'string') {
-      return parseInt(value);
-    } else {
-      return value;
-    }
-  })
+  @ApiProperty({ example: 3, minimum: 1, maximum: 12 })
+  @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(12)

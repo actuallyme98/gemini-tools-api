@@ -1,31 +1,37 @@
 import { Injectable } from '@nestjs/common';
-import { ChatGPTService } from '../chatgpt/chatgpt.service';
-import { GeminiService } from '../gemini/gemini.service';
+import { AIService } from '../ai/ai.service';
 import { R2Service } from '../r2/r2.service';
 
-import { withRetry } from 'src/utils/function.util';
+import { withRetry } from '../utils/function.util';
 
 @Injectable()
 export class MockupService {
   constructor(
-    private readonly chatGPTService: ChatGPTService,
-    private readonly geminiService: GeminiService,
+    private readonly aiService: AIService,
     private readonly r2Service: R2Service,
   ) {}
 
-  async generateMockups(file: Express.Multer.File, prompts: string[]) {
+  async generateMockups(
+    file: Express.Multer.File,
+    prompts: string[],
+    signal?: AbortSignal,
+  ) {
     const base64Image = file.buffer.toString('base64');
 
     const handlePrompt = async (prompt: string, index: number) => {
-      const editedBuffer = await withRetry(() =>
-        this.geminiService.editImage({
-          base64Image,
-          mimeType: file.mimetype,
-          prompt,
-        }),
+      const editedBuffer = await withRetry(
+        () =>
+          this.aiService.editImage({
+            base64Image,
+            mimeType: file.mimetype,
+            prompt,
+          }),
+        { signal },
       );
 
-      const url = await withRetry(() => this.r2Service.upload(editedBuffer));
+      const url = await withRetry(() => this.r2Service.upload(editedBuffer), {
+        signal,
+      });
 
       return { index, prompt, url };
     };
@@ -33,21 +39,30 @@ export class MockupService {
     const results = [];
 
     for (let i = 0; i < prompts.length; i++) {
+      signal?.throwIfAborted();
       results.push(await handlePrompt(prompts[i], i));
     }
 
     return { total: results.length, results };
   }
 
-  async generateMockupPrompts(image: Express.Multer.File, mockupCount: number) {
-    return withRetry(async () => {
-      const garmentProfile =
-        await this.geminiService.analyzeProductFromImage(image);
+  async generateMockupPrompts(
+    image: Express.Multer.File,
+    mockupCount: number,
+    signal?: AbortSignal,
+  ) {
+    return withRetry(
+      async () => {
+        const garmentProfile =
+          await this.aiService.analyzeProductFromImage(image);
 
-      return this.geminiService.generateMockupPrompts(
-        garmentProfile,
-        mockupCount,
-      );
-    });
+        signal?.throwIfAborted();
+        return this.aiService.generateMockupPrompts(
+          garmentProfile,
+          mockupCount,
+        );
+      },
+      { signal },
+    );
   }
 }

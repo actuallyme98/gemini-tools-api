@@ -1,0 +1,7 @@
+# Copy to scripts/.deploy-config (ignored by Git). Run from Git Bash on Windows.
+SERVER_IP=13.213.241.40
+SERVER_USER=ubuntu
+SSH_KEY="../ezihubb-workspace/scripts/ezihubb-keypair.pem"
+DEPLOY_PATH=/home/ubuntu/gemini-tools
+# Add the verified host key to ~/.ssh/known_hosts before deployment.
+# Server GHCR login is configured separately; no registry token is sent by CI.

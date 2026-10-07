@@ -6,6 +6,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.enableShutdownHooks();
 
   app.useGlobalPipes(
     new ValidationPipe({
@@ -33,4 +34,7 @@ async function bootstrap() {
 
   await app.listen(configService.get<number>('PORT') || 5177);
 }
-bootstrap();
+void bootstrap().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

@@ -394,7 +394,13 @@ Temporary Items
 
 =======
 # Local
+.npm-cache/
 .env
+.env.*
+!.env.example
+scripts/.deploy-config
+*.pem
+*.key
 dist
 .webpack
 .serverless/**/*.zip

@@ -1,3 +1,4 @@
+import type { Request } from 'express';
 import {
   CanActivate,
   ExecutionContext,
@@ -11,7 +12,7 @@ export class RateLimitGuard implements CanActivate {
   constructor(private redis: RedisService) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
-    const req = ctx.switchToHttp().getRequest();
+    const req = ctx.switchToHttp().getRequest<Request>();
     const ip = req.ip || 'unknown';
 
     const key = `rate:${ip}`;

@@ -11,6 +11,9 @@ Các endpoint POST nhận multipart/form-data:
 | /ideas/analyze-product | image | ImageAnalysis |
 | /ideas/generate-ideas | image, basePrompt, count (1–12, mặc định 3) | [{url,prompt}] |
 | /ideas/generate-images-from-referal-images | productImage, referenceImages (tối đa 10), variations (1–10, mặc định 1) | string[] |
+| /backgrounds/replace | productImage, backgroundImage, variationIndex (1–3, mặc định 1), instructions (tùy chọn, ≤2000 ký tự) | { url, mimeType } |
+
+[Background Studio](background-studio.md) tạo nhiều background bằng hàng đợi từng cặp ảnh và giữ kết quả thành công khi thử lại.
 
 Mỗi ảnh tối đa 10MB, PNG/JPEG/WebP. API kiểm tra MIME và chữ ký file; request không hợp lệ trả 400, file quá lớn trả 413 trước khi gọi AI. Prompt thủ công tối đa 4000 ký tự/prompt; basePrompt tối đa 20000 ký tự.
 

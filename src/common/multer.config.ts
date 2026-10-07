@@ -16,8 +16,11 @@ export const multerConfig: MulterModuleOptions = {
     callback(null, true);
   },
 };
-export function requireImage(file?: Express.Multer.File): Express.Multer.File {
-  if (!file) throw new BadRequestException('Image is required');
+export function requireImage(
+  file?: Express.Multer.File,
+  label = 'Image',
+): Express.Multer.File {
+  if (!file) throw new BadRequestException(`${label} is required`);
   const b = file.buffer;
   const valid =
     (file.mimetype === 'image/png' &&
@@ -33,7 +36,7 @@ export function requireImage(file?: Express.Multer.File): Express.Multer.File {
       b.toString('ascii', 8, 12) === 'WEBP');
   if (!valid)
     throw new BadRequestException(
-      'Image content does not match its PNG, JPEG or WebP type',
+      `${label} content does not match its PNG, JPEG or WebP type`,
     );
   return file;
 }

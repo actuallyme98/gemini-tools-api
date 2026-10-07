@@ -38,6 +38,36 @@ function provider(id: string, capabilities: AIProvider['capabilities']) {
 }
 
 describe('AIService provider routing', () => {
+  const backgroundParams = {
+    productImage: { base64: 'cHJvZHVjdA==', mimeType: 'image/png' },
+    backgroundImage: { base64: 'c2NlbmU=', mimeType: 'image/png' },
+    variationIndex: 1,
+  };
+  it('rejects a provider missing background replacement without falling back', () => {
+    const legacy = provider('legacy', ['text', 'vision', 'image']);
+    const service = new AIService(new ConfigService({}), [gemini, legacy]);
+    expect(() => service.replaceBackground(backgroundParams, 'legacy')).toThrow(
+      'chưa hỗ trợ',
+    );
+    expect(legacy.editImage).not.toHaveBeenCalled();
+    expect(gemini.editImage).not.toHaveBeenCalled();
+  });
+  it.each([
+    { buffer: Buffer.alloc(0), mimeType: 'image/png' },
+    { buffer: Buffer.from('invalid'), mimeType: 'text/html' },
+  ])('rejects invalid background output before storage: %s', async (result) => {
+    const selected = {
+      ...provider('selected', ['text', 'vision', 'image']),
+      replaceBackground: jest.fn().mockResolvedValue(result),
+    };
+    const service = new AIService(new ConfigService({}), [gemini, selected]);
+    await expect(
+      service.replaceBackground(backgroundParams, 'selected'),
+    ).rejects.toMatchObject({
+      response: { code: 'AI_INVALID_RESPONSE' },
+      retryable: false,
+    });
+  });
   let gemini: ReturnType<typeof provider>;
   let vyceai: ReturnType<typeof provider>;
   beforeEach(() => {

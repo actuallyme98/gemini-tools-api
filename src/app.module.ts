@@ -6,6 +6,7 @@ import { IdeaModule } from './idea/idea.module';
 import { HealthController } from './health.controller';
 import { APP_FILTER } from '@nestjs/core';
 import { ApiExceptionFilter } from './common/api-exception.filter';
+import { BackgroundModule } from './background/background.module';
 
 @Module({
   controllers: [HealthController],
@@ -17,6 +18,7 @@ import { ApiExceptionFilter } from './common/api-exception.filter';
     }),
     MockupModule,
     IdeaModule,
+    BackgroundModule,
   ],
 })
 export class AppModule {}

@@ -61,6 +61,57 @@ const imageResponse = {
 };
 
 describe('ShopAIKey native GenAI provider', () => {
+  it('sends the original product and a single background as separate roles, preserving output MIME type', async () => {
+    const provider = createProvider();
+    await provider.onModuleInit();
+    provider.create.mockResolvedValue({
+      candidates: [
+        {
+          content: {
+            parts: [
+              { inlineData: { mimeType: 'image/webp', data: 'aW1hZ2U=' } },
+            ],
+          },
+        },
+      ],
+    });
+    expect(
+      await provider.replaceBackground({
+        productImage: {
+          base64: 'data:image/png;base64,cHJvZHVjdA==',
+          mimeType: 'image/png',
+        },
+        backgroundImage: {
+          base64: 'data:image/jpeg;base64,c2NlbmU=',
+          mimeType: 'image/jpeg',
+        },
+        variationIndex: 2,
+        instructions: 'soft shadows',
+      }),
+    ).toEqual({ buffer: Buffer.from('image'), mimeType: 'image/webp' });
+    expect(provider.create).toHaveBeenCalledTimes(1);
+    expect(provider.create).toHaveBeenCalledWith({
+      model: 'native-image-model',
+      config: { responseModalities: ['TEXT', 'IMAGE'] },
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: expect.stringContaining('soft shadows') as unknown },
+            { text: expect.stringContaining('IMAGE 1') as unknown },
+            { inlineData: { mimeType: 'image/png', data: 'cHJvZHVjdA==' } },
+            { text: expect.stringContaining('IMAGE 2') as unknown },
+            { inlineData: { mimeType: 'image/jpeg', data: 'c2NlbmU=' } },
+          ],
+        },
+      ],
+    });
+    const call = provider.create.mock.calls[0] as [
+      { contents: [{ parts: [{ text: string }] }] },
+    ];
+    expect(call[0].contents[0].parts[0].text).toContain('BACKGROUND reference');
+    expect(call[0].contents[0].parts[0].text).toContain('Do not redesign');
+  });
   it('reports content safety blocks instead of a misleading invalid JSON or missing image error', async () => {
     const provider = createProvider();
     await provider.onModuleInit();

@@ -19,6 +19,18 @@ export interface ReferenceImagesParams {
   variationIndex?: number;
 }
 
+export interface BackgroundReplacementParams {
+  productImage: AIInputImage;
+  backgroundImage: AIInputImage;
+  instructions?: string;
+  variationIndex?: number;
+}
+
+export interface GeneratedImage {
+  buffer: Buffer;
+  mimeType: string;
+}
+
 /** Implement this contract and register the adapter in AI_PROVIDERS. */
 export interface AIProvider {
   readonly id: string;
@@ -31,6 +43,9 @@ export interface AIProvider {
   generateImagesFromReferalImages?(
     params: ReferenceImagesParams,
   ): Promise<Buffer[]>;
+  replaceBackground?(
+    params: BackgroundReplacementParams,
+  ): Promise<GeneratedImage>;
 }
 
 export const AI_PROVIDERS = Symbol('AI_PROVIDERS');

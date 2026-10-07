@@ -9,6 +9,7 @@ import {
 } from '../src/ai/ai-provider';
 import { MockupModule } from '../src/mockup/mockup.module';
 import { IdeaModule } from '../src/idea/idea.module';
+import { BackgroundModule } from '../src/background/background.module';
 import { R2Service } from '../src/r2/r2.service';
 import { APP_FILTER } from '@nestjs/core';
 import { ApiExceptionFilter } from '../src/common/api-exception.filter';
@@ -46,6 +47,9 @@ const adapter = (id: string, capabilities: AIProvider['capabilities']) => ({
   generateImage: jest.fn(() => Promise.resolve(png)),
   editImage: jest.fn(() => Promise.resolve(png)),
   generateImagesFromReferalImages: jest.fn(() => Promise.resolve([png])),
+  replaceBackground: jest.fn(() =>
+    Promise.resolve({ buffer: png, mimeType: 'image/png' }),
+  ),
 });
 
 describe('Client-selected provider routing', () => {
@@ -62,7 +66,7 @@ describe('Client-selected provider routing', () => {
       throw new Error('secret API key');
     });
     const module = await Test.createTestingModule({
-      imports: [MockupModule, IdeaModule],
+      imports: [MockupModule, IdeaModule, BackgroundModule],
       providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
     })
       .overrideProvider(ConfigService)
@@ -92,6 +96,16 @@ describe('Client-selected provider routing', () => {
     for (const [key, value] of Object.entries(fields))
       req = req.field(key, value);
     if (provider !== undefined) req = req.field('provider', provider);
+    if (endpoint === 'backgrounds/replace')
+      return req
+        .attach('productImage', png, {
+          filename: 'product.png',
+          contentType: 'image/png',
+        })
+        .attach('backgroundImage', png, {
+          filename: 'background.png',
+          contentType: 'image/png',
+        });
     return req.attach(
       endpoint.endsWith('referal-images') ? 'productImage' : 'image',
       png,
@@ -126,6 +140,7 @@ describe('Client-selected provider routing', () => {
     ['mockups/generate-mockups', { prompts: '["edit"]' }],
     ['ideas/generate-ideas', { count: '1', basePrompt: 'summer' }],
     ['ideas/generate-images-from-referal-images', { variations: '1' }],
+    ['backgrounds/replace', { variationIndex: '1' }],
   ] as [string, Record<string, string>][])(
     'rejects unsupported selections before any AI step on %s',
     async (endpoint, fields) => {
@@ -176,6 +191,7 @@ describe('Client-selected provider routing', () => {
     ['mockups/generate-mockups', { prompts: '["edit"]' }],
     ['ideas/generate-ideas', { count: '1', basePrompt: 'summer' }],
     ['ideas/generate-images-from-referal-images', { variations: '1' }],
+    ['backgrounds/replace', { variationIndex: '1' }],
   ] as [string, Record<string, string>][])(
     'rejects invalid/unconfigured selections before paid work on %s',
     async (endpoint, fields) => {
@@ -207,10 +223,16 @@ describe('Client-selected provider routing', () => {
       { variations: '1' },
       'generateImagesFromReferalImages',
     ],
+    ['backgrounds/replace', { variationIndex: '1' }, 'replaceBackground'],
   ] as [
     string,
     Record<string, string>,
-    'generateJSON' | 'editImage' | 'generateImagesFromReferalImages',
+    (
+      | 'generateJSON'
+      | 'editImage'
+      | 'generateImagesFromReferalImages'
+      | 'replaceBackground'
+    ),
   ][])(
     'returns actionable billing errors on %s without retrying or using another provider',
     async (endpoint, fields, method) => {
@@ -245,6 +267,102 @@ describe('Client-selected provider routing', () => {
       expect(upload).not.toHaveBeenCalled();
     },
   );
+  it('replaces one background using only the selected provider and stores the returned MIME type', async () => {
+    const jpeg = Buffer.from('ffd8ffe000104a464946', 'hex');
+    shopaikey.replaceBackground.mockResolvedValueOnce({
+      buffer: jpeg,
+      mimeType: 'image/jpeg',
+    });
+    const response = await request(
+      app.getHttpServer() as Parameters<typeof request>[0],
+    )
+      .post('/api/backgrounds/replace')
+      .field('provider', 'shopaikey')
+      .field('instructions', '  soft shadows  ')
+      .field('variationIndex', '2')
+      .attach('productImage', png, {
+        filename: 'product.png',
+        contentType: 'image/png',
+      })
+      .attach('backgroundImage', jpeg, {
+        filename: 'scene.jpg',
+        contentType: 'image/jpeg',
+      })
+      .expect(201);
+    expect(shopaikey.replaceBackground).toHaveBeenCalledTimes(1);
+    expect(shopaikey.replaceBackground).toHaveBeenCalledWith({
+      productImage: { base64: png.toString('base64'), mimeType: 'image/png' },
+      backgroundImage: {
+        base64: jpeg.toString('base64'),
+        mimeType: 'image/jpeg',
+      },
+      instructions: 'soft shadows',
+      variationIndex: 2,
+    });
+    expect(upload).toHaveBeenCalledWith(jpeg, 'image/jpeg');
+    expect(response.body).toMatchObject({
+      url: 'https://cdn.example/result.png',
+      mimeType: 'image/jpeg',
+    });
+    expect(gemini.replaceBackground).not.toHaveBeenCalled();
+    expect(shopaikey.generateJSON).not.toHaveBeenCalled();
+    expect(shopaikey.generateImagesFromReferalImages).not.toHaveBeenCalled();
+  });
+  it.each(['0', '4', '1.5', 'invalid'])(
+    'rejects invalid background variations %s before generation',
+    async (variationIndex) => {
+      await post('backgrounds/replace', { variationIndex }, 'gemini').expect(
+        400,
+      );
+      expect(gemini.replaceBackground).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+    },
+  );
+  it('names the missing background input and rejects corrupt reference images before paid work', async () => {
+    const response = await request(
+      app.getHttpServer() as Parameters<typeof request>[0],
+    )
+      .post('/api/backgrounds/replace')
+      .attach('productImage', png, {
+        filename: 'product.png',
+        contentType: 'image/png',
+      })
+      .expect(400);
+    expect(response.body).toMatchObject({
+      message: 'Background image is required',
+      requestId: expect.any(String) as unknown,
+    });
+    await request(app.getHttpServer() as Parameters<typeof request>[0])
+      .post('/api/backgrounds/replace')
+      .attach('productImage', png, {
+        filename: 'product.png',
+        contentType: 'image/png',
+      })
+      .attach('backgroundImage', Buffer.from('invalid'), {
+        filename: 'scene.png',
+        contentType: 'image/png',
+      })
+      .expect(400);
+    expect(gemini.replaceBackground).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+  });
+  it('does not regenerate a paid background image when storage rejects the upload', async () => {
+    upload.mockRejectedValueOnce(
+      externalServiceError('storage', {
+        name: 'AccessDenied',
+        $metadata: { httpStatusCode: 403 },
+      }),
+    );
+    const response = await post('backgrounds/replace', {}, 'gemini').expect(
+      502,
+    );
+    expect(response.body).toMatchObject({
+      code: 'STORAGE_ACCESS_DENIED',
+      retryable: false,
+    });
+    expect(gemini.replaceBackground).toHaveBeenCalledTimes(1);
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
   it('returns storage access errors after generation without repeating paid work', async () => {
     upload.mockRejectedValueOnce(
       externalServiceError('storage', {

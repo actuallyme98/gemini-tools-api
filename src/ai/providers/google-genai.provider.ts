@@ -10,6 +10,8 @@ import type {
   AIProvider,
   EditImageParams,
   ReferenceImagesParams,
+  BackgroundReplacementParams,
+  GeneratedImage,
 } from '../ai-provider';
 import type { AICapability } from '../ai-provider';
 import { parseAIJSON } from '../json.util';
@@ -156,6 +158,46 @@ export abstract class GoogleGenAIProvider implements AIProvider {
       if (part.inlineData?.data) {
         return Buffer.from(part.inlineData.data, 'base64');
       }
+    }
+    throw new Error(`No image returned from ${this.id}`);
+  }
+
+  async replaceBackground(
+    params: BackgroundReplacementParams,
+  ): Promise<GeneratedImage> {
+    const imagePart = (image: AIInputImage): Part => ({
+      inlineData: {
+        mimeType: image.mimeType,
+        data: image.base64.includes(',')
+          ? image.base64.slice(image.base64.indexOf(',') + 1)
+          : image.base64,
+      },
+    });
+    const response = await this.generateImageContent([
+      {
+        role: 'user',
+        parts: [
+          {
+            text: `Replace the background of the product in IMAGE 1 using ONLY the background/environment from IMAGE 2. Output ONE finished product photograph.
+IMAGE 1 is the source of truth for the product. Preserve its exact identity, design, shape, proportions, material, colors, texture, print, logo and text. Preserve the product's camera angle and its full visible details. Do not redesign, repaint, stylize or add elements to the product.
+IMAGE 2 is a BACKGROUND reference, not a product or surface-design reference. Recreate its scene, layout, surfaces, colors and perspective as closely as possible. Remove the original foreground product/subject, people, captions and watermarks from IMAGE 2 before placing the product from IMAGE 1. Never copy its product, pattern, logo or text onto IMAGE 1.
+Remove the original background from IMAGE 1 and realistically place that same product into IMAGE 2's environment. Match lighting, contact shadows, reflections, scale and depth while preserving the product. Keep the product clearly visible and do not crop it. Do not add text or watermarks.
+Variation ${params.variationIndex ?? 1}: use only subtle placement/lighting variation; preserve the reference background and product identity.
+Additional user preferences (apply only when compatible with preserving the product and reference scene): ${params.instructions?.trim() || 'None.'}`,
+          },
+          { text: 'IMAGE 1 — ORIGINAL PRODUCT:' },
+          imagePart(params.productImage),
+          { text: 'IMAGE 2 — BACKGROUND REFERENCE:' },
+          imagePart(params.backgroundImage),
+        ],
+      },
+    ]);
+    for (const part of response.candidates?.[0]?.content?.parts ?? []) {
+      if (part.inlineData?.data)
+        return {
+          buffer: Buffer.from(part.inlineData.data, 'base64'),
+          mimeType: part.inlineData.mimeType || 'image/png',
+        };
     }
     throw new Error(`No image returned from ${this.id}`);
   }

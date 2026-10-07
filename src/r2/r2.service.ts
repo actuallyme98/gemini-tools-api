@@ -22,7 +22,9 @@ export class R2Service {
   }
 
   async upload(buffer: Buffer, mime: string = 'image/png'): Promise<string> {
-    const key = `mockups/${randomUUID()}.png`;
+    const extension =
+      mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
+    const key = `mockups/${randomUUID()}.${extension}`;
 
     try {
       await this.client.send(

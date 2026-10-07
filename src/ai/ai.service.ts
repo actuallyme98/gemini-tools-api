@@ -7,6 +7,8 @@ import type {
   AIProviderCatalog,
   EditImageParams,
   ReferenceImagesParams,
+  BackgroundReplacementParams,
+  GeneratedImage,
 } from './ai-provider';
 import type { Idea, ImageAnalysis } from './types';
 import { ApiError } from '../common/api-error';
@@ -163,6 +165,31 @@ export class AIService implements OnModuleInit {
     } catch (error) {
       throw externalServiceError('ai', error, provider);
     }
+  }
+
+  replaceBackground(
+    params: BackgroundReplacementParams,
+    providerId?: string,
+  ): Promise<GeneratedImage> {
+    const provider = this.providerFor('image', providerId);
+    if (!provider.replaceBackground)
+      throw new ApiError(
+        400,
+        'AI_CAPABILITY_UNAVAILABLE',
+        `Provider ${provider.name || provider.id} chưa hỗ trợ thay background từ ảnh tham chiếu. Hãy chọn provider khác.`,
+        { provider: provider.id },
+      );
+    return this.execute(provider, async () => {
+      const result = await provider.replaceBackground(params);
+      if (
+        !result ||
+        !Buffer.isBuffer(result.buffer) ||
+        !result.buffer.length ||
+        !['image/png', 'image/jpeg', 'image/webp'].includes(result.mimeType)
+      )
+        throw new Error('AI provider returned an invalid background image');
+      return result;
+    });
   }
 
   getProviders(): AIProviderCatalog {

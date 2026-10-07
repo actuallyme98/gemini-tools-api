@@ -137,7 +137,7 @@ describe('AIService provider routing', () => {
     vyceai.generateJSON.mockRejectedValue(new Error('Upstream unavailable'));
     await expect(
       service.generateMockupPrompts(analysis, 1, 'vyceai'),
-    ).rejects.toThrow('Upstream unavailable');
+    ).rejects.toThrow('xử lý tác vụ thất bại');
     expect(gemini.generateJSON).not.toHaveBeenCalled();
   });
 
@@ -245,7 +245,7 @@ describe('AIService provider routing', () => {
       .mocked(vyceai.generateJSON)
       .mockRejectedValue(new Error('Upstream unavailable'));
     await expect(service.generateMockupPrompts(analysis, 1)).rejects.toThrow(
-      'Upstream unavailable',
+      'xử lý tác vụ thất bại',
     );
     expect(gemini.generateJSON).not.toHaveBeenCalled();
   });
@@ -258,7 +258,7 @@ describe('AIService provider routing', () => {
     const service = new AIService(new ConfigService({}), [gemini]);
     jest.mocked(gemini.generateJSON).mockResolvedValue(result);
     await expect(service.generateMockupPrompts(analysis, 2)).rejects.toThrow(
-      'exactly 2',
+      'không trả về kết quả hợp lệ',
     );
   });
 
@@ -272,14 +272,14 @@ describe('AIService provider routing', () => {
         buffer: Buffer.from('product'),
         mimetype: 'image/png',
       } as Express.Multer.File),
-    ).rejects.toThrow('invalid product analysis');
+    ).rejects.toThrow('không trả về kết quả hợp lệ');
     jest
       .mocked(gemini.generateJSON)
       .mockResolvedValue([
         { title: 'Idea', description: 'Details', prompt: '' },
       ]);
     await expect(service.generateIdeasFromAttributes('Summer')).rejects.toThrow(
-      'invalid list of ideas',
+      'không trả về kết quả hợp lệ',
     );
     expect(gemini.editImage).not.toHaveBeenCalled();
   });
@@ -296,7 +296,7 @@ describe('AIService provider routing', () => {
     ]);
     await expect(
       service.generateIdeasFromAttributes('prompt', 2),
-    ).rejects.toThrow('invalid list of ideas');
+    ).rejects.toThrow('không trả về kết quả hợp lệ');
   });
   it('rejects malformed optional analysis metadata', async () => {
     const service = new AIService(new ConfigService({}), [gemini]);
@@ -309,6 +309,6 @@ describe('AIService provider routing', () => {
         buffer: Buffer.from('product'),
         mimetype: 'image/png',
       } as Express.Multer.File),
-    ).rejects.toThrow('invalid product analysis');
+    ).rejects.toThrow('không trả về kết quả hợp lệ');
   });
 });

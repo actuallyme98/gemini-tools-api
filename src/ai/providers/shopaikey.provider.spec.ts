@@ -61,6 +61,34 @@ const imageResponse = {
 };
 
 describe('ShopAIKey native GenAI provider', () => {
+  it('reports content safety blocks instead of a misleading invalid JSON or missing image error', async () => {
+    const provider = createProvider();
+    await provider.onModuleInit();
+    provider.create.mockResolvedValue({
+      promptFeedback: { blockReason: 'SAFETY' },
+    });
+    await expect(provider.generateJSON('blocked')).rejects.toThrow(
+      'từ chối nội dung',
+    );
+    await expect(provider.generateImage('blocked')).rejects.toThrow(
+      'từ chối nội dung',
+    );
+  });
+  it('reports truncated output instead of a JSON parsing failure', async () => {
+    const provider = createProvider();
+    await provider.onModuleInit();
+    provider.create.mockResolvedValue({
+      candidates: [
+        {
+          finishReason: 'MAX_TOKENS',
+          content: { parts: [{ text: '{"unfinished":' }] },
+        },
+      ],
+    });
+    await expect(provider.generateJSON('long response')).rejects.toThrow(
+      'bị cắt ngắn',
+    );
+  });
   it('uses separate API and Direct clients with ShopAIKey credentials', async () => {
     const provider = createProvider();
     await provider.onModuleInit();

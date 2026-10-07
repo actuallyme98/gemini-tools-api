@@ -13,6 +13,7 @@ import type {
 } from '../ai-provider';
 import type { AICapability } from '../ai-provider';
 import { parseAIJSON } from '../json.util';
+import { ApiError } from '../../common/api-error';
 
 interface GoogleGenAIProviderConfig {
   id: string;
@@ -77,17 +78,56 @@ export abstract class GoogleGenAIProvider implements AIProvider {
     return this.config.get<string>(model.key) || model.default;
   }
 
-  private generateImageContent(
+  private async generateImageContent(
     contents: string | { role: string; parts: Part[] }[],
   ): Promise<GenerateContentResponse> {
     this.validateConfiguration('image');
-    return this.imageGenai.models.generateContent({
+    const response = await this.imageGenai.models.generateContent({
       model: this.modelImage,
       contents,
       ...(this.providerConfig.imageResponseModalities
         ? { config: { responseModalities: ['TEXT', 'IMAGE'] } }
         : {}),
     });
+    this.assertResponse(response);
+    return response;
+  }
+
+  private assertResponse(response: GenerateContentResponse): void {
+    const blocked = response.promptFeedback?.blockReason;
+    const finish = String(response.candidates?.[0]?.finishReason || '');
+    if (
+      blocked ||
+      [
+        'SAFETY',
+        'IMAGE_SAFETY',
+        'BLOCKLIST',
+        'PROHIBITED_CONTENT',
+        'RECITATION',
+        'SPII',
+      ].includes(finish || '')
+    )
+      throw new ApiError(
+        422,
+        'AI_CONTENT_BLOCKED',
+        'Provider AI từ chối nội dung hoặc hình ảnh theo chính sách sử dụng.',
+        {
+          provider: this.id,
+          reason: String(blocked || finish),
+          suggestion: 'Điều chỉnh prompt hoặc chọn hình ảnh khác.',
+        },
+      );
+    if (finish === 'MAX_TOKENS')
+      throw new ApiError(
+        502,
+        'AI_OUTPUT_TRUNCATED',
+        'Kết quả AI bị cắt ngắn vì vượt giới hạn đầu ra của model.',
+        {
+          provider: this.id,
+          reason: finish,
+          suggestion: 'Giảm số lượng kết quả hoặc rút gọn yêu cầu.',
+        },
+      );
   }
 
   async generateJSON(prompt: string, image?: AIInputImage): Promise<unknown> {
@@ -103,6 +143,7 @@ export abstract class GoogleGenAIProvider implements AIProvider {
       model: image ? this.modelMultimodal : this.modelText,
       contents: [{ role: 'user', parts }],
     });
+    this.assertResponse(response);
     const text = response.candidates?.[0]?.content?.parts
       ?.map((part) => part.text ?? '')
       .join('');

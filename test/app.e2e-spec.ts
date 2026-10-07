@@ -6,6 +6,8 @@ import { IdeaModule } from '../src/idea/idea.module';
 import { AIService } from '../src/ai/ai.service';
 import { R2Service } from '../src/r2/r2.service';
 import { HealthController } from '../src/health.controller';
+import { APP_FILTER } from '@nestjs/core';
+import { ApiExceptionFilter } from '../src/common/api-exception.filter';
 
 const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
 const analysis = {
@@ -55,13 +57,14 @@ describe('Image API contracts (no external services)', () => {
     const module = await Test.createTestingModule({
       imports: [MockupModule, IdeaModule],
       controllers: [HealthController],
+      providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
     })
       .overrideProvider(AIService)
       .useValue(ai)
       .overrideProvider(R2Service)
       .useValue(r2)
       .compile();
-    app = module.createNestApplication();
+    app = module.createNestApplication({ logger: false });
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
       new ValidationPipe({ transform: true, whitelist: true }),
@@ -79,6 +82,71 @@ describe('Image API contracts (no external services)', () => {
       .expect({ status: 'ok' });
     expect(ai.analyzeProductFromImage).not.toHaveBeenCalled();
     expect(r2.upload).not.toHaveBeenCalled();
+  });
+  it('returns validation fields and a request ID in the shared error contract', async () => {
+    const response = await request(
+      app.getHttpServer() as Parameters<typeof request>[0],
+    )
+      .post('/api/mockups/generate-prompts')
+      .field('count', '13')
+      .attach('image', png, {
+        filename: 'product.png',
+        contentType: 'image/png',
+      })
+      .expect(400);
+    expect(response.body).toMatchObject({
+      statusCode: 400,
+      code: 'VALIDATION_ERROR',
+      message: expect.arrayContaining([
+        expect.stringContaining('count') as unknown,
+      ]) as unknown,
+      requestId: expect.any(String) as unknown,
+    });
+  });
+  it('uses the shared contract for missing routes', async () => {
+    const response = await request(
+      app.getHttpServer() as Parameters<typeof request>[0],
+    )
+      .get('/api/not-a-route')
+      .expect(404);
+    expect(response.body).toMatchObject({
+      statusCode: 404,
+      code: 'NOT_FOUND',
+      requestId: expect.any(String) as unknown,
+    });
+  });
+  it('returns malformed JSON as an input error, not HTTP 500', async () => {
+    const response = await request(
+      app.getHttpServer() as Parameters<typeof request>[0],
+    )
+      .post('/api/ideas/analyze-product')
+      .set('Content-Type', 'application/json')
+      .send('{invalid')
+      .expect(400);
+    expect(response.body).toMatchObject({
+      code: 'INVALID_JSON',
+      message: 'Dữ liệu JSON gửi lên không đúng định dạng.',
+      requestId: expect.any(String) as unknown,
+    });
+  });
+  it('keeps unexpected server internals out of the client response', async () => {
+    ai.analyzeProductFromImage.mockRejectedValueOnce(
+      new Error('private database password secret'),
+    );
+    const response = await request(
+      app.getHttpServer() as Parameters<typeof request>[0],
+    )
+      .post('/api/ideas/analyze-product')
+      .attach('image', png, {
+        filename: 'product.png',
+        contentType: 'image/png',
+      })
+      .expect(500);
+    expect(response.body).toMatchObject({
+      code: 'INTERNAL_ERROR',
+      requestId: expect.any(String) as unknown,
+    });
+    expect(JSON.stringify(response.body)).not.toContain('private database');
   });
   const post = (endpoint: string) =>
     request(app.getHttpServer() as Parameters<typeof request>[0]).post(

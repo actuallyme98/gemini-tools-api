@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AppModule } from './app.module';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
+import { apiErrorResponses } from './common/api-error.responses';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -25,6 +26,7 @@ async function bootstrap() {
       'API upload, edit image with Gemini and store on Cloudflare R2',
     )
     .setVersion('1.0')
+    .addGlobalResponse(...apiErrorResponses)
     .build();
 
   app.setGlobalPrefix('api');

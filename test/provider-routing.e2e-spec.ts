@@ -10,6 +10,9 @@ import {
 import { MockupModule } from '../src/mockup/mockup.module';
 import { IdeaModule } from '../src/idea/idea.module';
 import { R2Service } from '../src/r2/r2.service';
+import { APP_FILTER } from '@nestjs/core';
+import { ApiExceptionFilter } from '../src/common/api-exception.filter';
+import { externalServiceError } from '../src/common/external-service-error';
 
 const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
 const analysis = {
@@ -60,6 +63,7 @@ describe('Client-selected provider routing', () => {
     });
     const module = await Test.createTestingModule({
       imports: [MockupModule, IdeaModule],
+      providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
     })
       .overrideProvider(ConfigService)
       .useValue(new ConfigService({}))
@@ -68,7 +72,7 @@ describe('Client-selected provider routing', () => {
       .overrideProvider(R2Service)
       .useValue({ upload })
       .compile();
-    app = module.createNestApplication();
+    app = module.createNestApplication({ logger: false });
     app.setGlobalPrefix('api');
     app.useGlobalPipes(
       new ValidationPipe({ transform: true, whitelist: true }),
@@ -189,4 +193,76 @@ describe('Client-selected provider routing', () => {
       expect(upload).not.toHaveBeenCalled();
     },
   );
+  it.each([
+    ['ideas/analyze-product', {}, 'generateJSON'],
+    ['mockups/generate-prompts', { count: '1' }, 'generateJSON'],
+    ['mockups/generate-mockups', { prompts: '["edit"]' }, 'editImage'],
+    [
+      'ideas/generate-ideas',
+      { count: '1', basePrompt: 'summer' },
+      'generateJSON',
+    ],
+    [
+      'ideas/generate-images-from-referal-images',
+      { variations: '1' },
+      'generateImagesFromReferalImages',
+    ],
+  ] as [
+    string,
+    Record<string, string>,
+    'generateJSON' | 'editImage' | 'generateImagesFromReferalImages',
+  ][])(
+    'returns actionable billing errors on %s without retrying or using another provider',
+    async (endpoint, fields, method) => {
+      gemini[method].mockRejectedValueOnce(
+        Object.assign(
+          new Error(
+            JSON.stringify({
+              error: {
+                code: 403,
+                message: 'Lightning dunning decision is deny',
+              },
+            }),
+          ),
+          { status: 403 },
+        ),
+      );
+      const response = await post(endpoint, fields, 'gemini').expect(503);
+      expect(response.body).toMatchObject({
+        statusCode: 503,
+        code: 'AI_BILLING_BLOCKED',
+        provider: 'gemini',
+        upstreamStatus: 403,
+        reason: 'Lightning dunning decision is deny',
+        retryable: false,
+        requestId: expect.any(String) as unknown,
+      });
+      expect(response.headers['x-request-id']).toBe(
+        (response.body as { requestId: string }).requestId,
+      );
+      expect(gemini[method]).toHaveBeenCalledTimes(1);
+      expect(shopaikey.generateJSON).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+    },
+  );
+  it('returns storage access errors after generation without repeating paid work', async () => {
+    upload.mockRejectedValueOnce(
+      externalServiceError('storage', {
+        name: 'AccessDenied',
+        $metadata: { httpStatusCode: 403 },
+      }),
+    );
+    const response = await post(
+      'mockups/generate-mockups',
+      { prompts: '["edit"]' },
+      'gemini',
+    ).expect(502);
+    expect(response.body).toMatchObject({
+      code: 'STORAGE_ACCESS_DENIED',
+      upstreamStatus: 403,
+      retryable: false,
+    });
+    expect(gemini.editImage).toHaveBeenCalledTimes(1);
+    expect(upload).toHaveBeenCalledTimes(1);
+  });
 });

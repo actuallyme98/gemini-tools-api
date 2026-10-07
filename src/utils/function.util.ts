@@ -1,4 +1,5 @@
 import { setTimeout } from 'node:timers/promises';
+import { ApiError } from '../common/api-error';
 export async function withRetry<T>(
   fn: () => Promise<T>,
   options?: {
@@ -20,6 +21,7 @@ export async function withRetry<T>(
     } catch (err: unknown) {
       options?.signal?.throwIfAborted();
       lastError = err;
+      if (err instanceof ApiError && !err.retryable) throw err;
       const status =
         typeof err === 'object' && err !== null && 'status' in err
           ? Number(err.status)

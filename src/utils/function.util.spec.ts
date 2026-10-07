@@ -1,4 +1,5 @@
 import { withRetry } from './function.util';
+import { ApiError } from '../common/api-error';
 describe('Paid request retry boundaries', () => {
   it('does not call a provider when already cancelled', async () => {
     const controller = new AbortController();
@@ -21,5 +22,11 @@ describe('Paid request retry boundaries', () => {
       .mockResolvedValue('ok');
     expect(await withRetry(call, { delayMs: 1 })).toBe('ok');
     expect(call).toHaveBeenCalledTimes(2);
+  });
+  it('does not retry a billing denial mapped to an HTTP 503', async () => {
+    const error = new ApiError(503, 'AI_BILLING_BLOCKED', 'Project blocked');
+    const call = jest.fn().mockRejectedValue(error);
+    await expect(withRetry(call)).rejects.toBe(error);
+    expect(call).toHaveBeenCalledTimes(1);
   });
 });

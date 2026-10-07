@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 import type { ChatCompletionContentPart } from 'openai/resources/chat/completions';
 import type { AICapability, AIInputImage, AIProvider } from '../ai-provider';
 import { parseAIJSON } from '../json.util';
+import { ApiError } from '../../common/api-error';
 
 @Injectable()
 export class VyceAIProvider implements AIProvider {
@@ -76,7 +77,29 @@ export class VyceAIProvider implements AIProvider {
       ],
     });
 
-    return parseAIJSON(response.choices[0]?.message.content);
+    const choice = response.choices[0];
+    if (choice?.finish_reason === 'content_filter')
+      throw new ApiError(
+        422,
+        'AI_CONTENT_BLOCKED',
+        'VyceAI từ chối nội dung theo chính sách sử dụng.',
+        {
+          provider: this.id,
+          reason: 'content_filter',
+          suggestion: 'Điều chỉnh prompt hoặc chọn hình ảnh khác.',
+        },
+      );
+    if (choice?.finish_reason === 'length')
+      throw new ApiError(
+        502,
+        'AI_OUTPUT_TRUNCATED',
+        'Kết quả VyceAI bị cắt ngắn vì vượt giới hạn đầu ra.',
+        {
+          provider: this.id,
+          suggestion: 'Giảm số lượng kết quả hoặc rút gọn yêu cầu.',
+        },
+      );
+    return parseAIJSON(choice?.message.content);
   }
 
   private modelKey(capability: AICapability): string {

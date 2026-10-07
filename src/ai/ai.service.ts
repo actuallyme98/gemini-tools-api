@@ -1,9 +1,4 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  OnModuleInit,
-} from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AI_PROVIDERS } from './ai-provider';
 import type {
@@ -14,6 +9,8 @@ import type {
   ReferenceImagesParams,
 } from './ai-provider';
 import type { Idea, ImageAnalysis } from './types';
+import { ApiError } from '../common/api-error';
+import { externalServiceError } from '../common/external-service-error';
 import {
   ANALYZE_PRODUCT_FROM_IMAGE_PROMPT,
   toGenerateMockupPrompts,
@@ -55,12 +52,19 @@ export class AIService implements OnModuleInit {
     file: Express.Multer.File,
     providerId?: string,
   ): Promise<ImageAnalysis> {
-    const result = await this.providerFor('vision', providerId).generateJSON(
-      ANALYZE_PRODUCT_FROM_IMAGE_PROMPT,
-      { base64: file.buffer.toString('base64'), mimeType: file.mimetype },
+    const provider = this.providerFor('vision', providerId);
+    const result = await this.execute(provider, () =>
+      provider.generateJSON(ANALYZE_PRODUCT_FROM_IMAGE_PROMPT, {
+        base64: file.buffer.toString('base64'),
+        mimeType: file.mimetype,
+      }),
     );
     if (!isImageAnalysis(result)) {
-      throw new Error('AI provider returned an invalid product analysis');
+      throw externalServiceError(
+        'ai',
+        new Error('AI provider returned an invalid product analysis'),
+        provider,
+      );
     }
     return result;
   }
@@ -70,8 +74,9 @@ export class AIService implements OnModuleInit {
     count: number,
     providerId?: string,
   ): Promise<string[]> {
-    const result = await this.providerFor('text', providerId).generateJSON(
-      toGenerateMockupPrompts(analysis, count),
+    const provider = this.providerFor('text', providerId);
+    const result = await this.execute(provider, () =>
+      provider.generateJSON(toGenerateMockupPrompts(analysis, count)),
     );
     if (
       !Array.isArray(result) ||
@@ -80,8 +85,12 @@ export class AIService implements OnModuleInit {
         (prompt: unknown) => typeof prompt === 'string' && prompt.trim(),
       )
     ) {
-      throw new Error(
-        `AI provider must return exactly ${count} non-empty mockup prompts`,
+      throw externalServiceError(
+        'ai',
+        new Error(
+          `AI provider must return exactly ${count} non-empty mockup prompts`,
+        ),
+        provider,
       );
     }
     return result as string[];
@@ -92,8 +101,11 @@ export class AIService implements OnModuleInit {
     count?: number,
     providerId?: string,
   ): Promise<Idea[]> {
-    const result = await this.providerFor('text', providerId).generateJSON(
-      `${basePrompt}${count ? `\nGenerate exactly ${count} ideas.` : ''}\n\nReturn only a non-empty JSON array of objects with string fields title, description, and prompt. Each prompt must be a complete instruction for editing the product image.`,
+    const provider = this.providerFor('text', providerId);
+    const result = await this.execute(provider, () =>
+      provider.generateJSON(
+        `${basePrompt}${count ? `\nGenerate exactly ${count} ideas.` : ''}\n\nReturn only a non-empty JSON array of objects with string fields title, description, and prompt. Each prompt must be a complete instruction for editing the product image.`,
+      ),
     );
     if (
       !Array.isArray(result) ||
@@ -101,7 +113,11 @@ export class AIService implements OnModuleInit {
       !result.every(isIdea) ||
       (count !== undefined && result.length !== count)
     ) {
-      throw new Error('AI provider returned an invalid list of ideas');
+      throw externalServiceError(
+        'ai',
+        new Error('AI provider returned an invalid list of ideas'),
+        provider,
+      );
     }
     return result;
   }
@@ -110,13 +126,13 @@ export class AIService implements OnModuleInit {
     const provider = this.providerFor('image', providerId);
     if (!provider.generateImage)
       throw new Error('AI provider cannot generate images');
-    return provider.generateImage(prompt);
+    return this.execute(provider, () => provider.generateImage(prompt));
   }
 
   editImage(params: EditImageParams, providerId?: string): Promise<Buffer> {
     const provider = this.providerFor('image', providerId);
     if (!provider.editImage) throw new Error('AI provider cannot edit images');
-    return provider.editImage(params);
+    return this.execute(provider, () => provider.editImage(params));
   }
 
   generateImagesFromReferalImages(
@@ -127,7 +143,26 @@ export class AIService implements OnModuleInit {
     if (!provider.generateImagesFromReferalImages) {
       throw new Error('AI provider cannot generate images from references');
     }
-    return provider.generateImagesFromReferalImages(params);
+    return this.execute(provider, async () => {
+      const images = await provider.generateImagesFromReferalImages(params);
+      if (
+        !images.length ||
+        images.some((image) => !Buffer.isBuffer(image) || !image.length)
+      )
+        throw new Error('AI provider returned no reference image');
+      return images;
+    });
+  }
+
+  private async execute<T>(
+    provider: AIProvider,
+    task: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await task();
+    } catch (error) {
+      throw externalServiceError('ai', error, provider);
+    }
   }
 
   getProviders(): AIProviderCatalog {
@@ -189,10 +224,17 @@ export class AIService implements OnModuleInit {
   ): AIProvider {
     if (providerId !== undefined) {
       const selected = this.providers.get(providerId);
-      if (!selected) throw new BadRequestException('Provider AI không hợp lệ.');
+      if (!selected)
+        throw new ApiError(
+          400,
+          'AI_PROVIDER_INVALID',
+          'Provider AI không hợp lệ.',
+        );
       const capabilities = this.configuredCapabilities(selected);
       if (!capabilities.length)
-        throw new BadRequestException(
+        throw new ApiError(
+          400,
+          'AI_PROVIDER_NOT_CONFIGURED',
           'Provider AI chưa được cấu hình trên máy chủ.',
         );
       if (capabilities.includes(capability)) return selected;
@@ -201,7 +243,9 @@ export class AIService implements OnModuleInit {
         vision: 'phân tích ảnh',
         image: 'tạo / sửa ảnh',
       }[capability];
-      throw new BadRequestException(
+      throw new ApiError(
+        400,
+        'AI_CAPABILITY_UNAVAILABLE',
         `Provider ${selected.name || selected.id} chưa hỗ trợ hoặc chưa được cấu hình cho tác vụ ${task}. Hãy chọn provider khác.`,
       );
     }

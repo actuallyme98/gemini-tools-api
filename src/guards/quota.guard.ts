@@ -1,11 +1,8 @@
 import type { Request } from 'express';
-import {
-  CanActivate,
-  ExecutionContext,
-  Injectable,
-  ForbiddenException,
-} from '@nestjs/common';
+import { CanActivate, ExecutionContext, Injectable } from '@nestjs/common';
 import { RedisService } from '../redis/redis.service';
+import { ApiError } from '../common/api-error';
+import { externalServiceError } from '../common/external-service-error';
 
 @Injectable()
 export class QuotaGuard implements CanActivate {
@@ -21,14 +18,19 @@ export class QuotaGuard implements CanActivate {
 
     const DAILY_LIMIT = 5;
 
-    const used = Number((await this.redis.client.get(key)) || 0);
-
-    if (used >= DAILY_LIMIT) {
-      throw new ForbiddenException('Daily image quota exceeded');
+    try {
+      const used = Number((await this.redis.client.get(key)) || 0);
+      if (used >= DAILY_LIMIT)
+        throw new ApiError(
+          429,
+          'DAILY_QUOTA_EXCEEDED',
+          'Bạn đã dùng hết quota tạo ảnh trong ngày. Vui lòng thử lại vào ngày mai.',
+        );
+      await this.redis.client.incr(key);
+      await this.redis.client.expire(key, 86400);
+    } catch (error) {
+      throw externalServiceError('redis', error);
     }
-
-    await this.redis.client.incr(key);
-    await this.redis.client.expire(key, 86400);
 
     return true;
   }

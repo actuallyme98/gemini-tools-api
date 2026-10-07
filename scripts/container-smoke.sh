@@ -3,9 +3,7 @@
 set -euo pipefail
 IMAGE="${1:?Image required}"
 NAME="gemini-api-smoke-${GITHUB_RUN_ID:-$$}"
-# shellcheck disable=SC2329 # Called by the EXIT trap.
-cleanup() { docker rm -f "$NAME" >/dev/null 2>&1 || true; }
-trap cleanup EXIT
+trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
 docker run -d --name "$NAME" --env-file .env.example -e NODE_ENV=production \
   -p 127.0.0.1:5181:5177 "$IMAGE" >/dev/null
 for _ in {1..40}; do

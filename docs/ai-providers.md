@@ -50,7 +50,7 @@ VYCEAI_MODEL_VISION=claude-sonnet-4-6
 
 Ảnh được gửi dưới dạng `image_url` với data URL base64. Khả năng nhận ảnh không đồng nghĩa khả năng sinh ảnh. Adapter chưa hỗ trợ sinh/chỉnh ảnh: đặt `AI_IMAGE_PROVIDER=vyceai` sẽ khiến ứng dụng báo lỗi khi khởi động. Nếu đặt `AI_PROVIDER=vyceai`, phải override image sang Gemini và bật/cấu hình vision hoặc override vision sang Gemini.
 
-Chưa gọi thử API VyceAI thật bằng credential. Cần smoke test tài khoản của bạn để xác nhận model ID, vision, quota và chất lượng đầu ra.
+Kết quả kiểm tra gateway thực tế được ghi ở [báo cáo VyceAI](vyceai-smoke-test.md). Vision chỉ nên bật sau khi kiểm tra model đọc đúng ảnh; HTTP 200 và JSON hợp lệ chưa đủ để xác nhận chất lượng vision.
 
 ## ShopAIKey (native Google GenAI)
 
@@ -112,6 +112,6 @@ GET /api/ai/providers lists registered providers, configured capabilities, avail
 
 All five multipart image endpoints accept an optional provider field (e.g. gemini, vyceai, shopaikey). Omit it to keep AI_PROVIDER and per-capability environment defaults. Selection applies only to that request and all its steps/variations; it never changes global configuration.
 
-A selected provider handles its configured capabilities. Unsupported or unconfigured capabilities use the corresponding system default; the sidebar displays this routing. For example, text-only VyceAI generates prompts/ideas, while default vision and image providers analyze/edit images. Runtime errors never trigger a switch to another provider. Unknown IDs or providers with no configured capabilities return HTTP 400 before AI generation or R2 upload. Startup still validates all system defaults strictly.
+A selected provider handles its configured capabilities. Every AI step uses the explicitly selected provider. Unsupported or unconfigured capabilities return HTTP 400; the sidebar marks them as unavailable with null routing. No request-time fallback occurs. Multi-step and batch endpoints validate all required capabilities before any paid AI generation. Unknown IDs or providers with no configured capabilities also return HTTP 400. Startup still validates all system defaults strictly.
 
 Availability means local configuration is complete, not a live upstream status check. Register new adapters in AI_PROVIDERS and optionally provide a name for the client label.

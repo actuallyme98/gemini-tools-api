@@ -82,7 +82,7 @@ describe('AIService provider routing', () => {
     });
   });
 
-  it('reports capability fallback and unavailable providers without leaking configuration errors', async () => {
+  it('reports unsupported capabilities and unavailable providers without leaking configuration errors', () => {
     const custom = provider('custom', ['text', 'vision', 'image']);
     custom.validateConfiguration.mockImplementation((capability?: unknown) => {
       if (capability === 'image')
@@ -104,22 +104,26 @@ describe('AIService provider routing', () => {
       name: 'vyceai',
       available: true,
       capabilities: ['text'],
-      routing: { text: 'vyceai', vision: 'gemini', image: 'gemini' },
+      routing: { text: 'vyceai', vision: null, image: null },
     });
     expect(
       catalog.providers.find((entry) => entry.id === 'custom'),
     ).toMatchObject({
       capabilities: ['text', 'vision'],
-      routing: { image: 'gemini' },
+      routing: { image: null },
     });
     expect(JSON.stringify(catalog)).not.toContain('private');
-    await configured.editImage(
-      { base64Image: '', mimeType: 'image/png', prompt: 'edit' },
-      'vyceai',
+    expect(() =>
+      configured.editImage(
+        { base64Image: '', mimeType: 'image/png', prompt: 'edit' },
+        'vyceai',
+      ),
+    ).toThrow('chưa hỗ trợ');
+    expect(() => configured.generateImage('image', 'custom')).toThrow(
+      'chưa hỗ trợ',
     );
-    await configured.generateImage('image', 'custom');
-    expect(gemini.editImage).toHaveBeenCalledTimes(1);
-    expect(gemini.generateImage).toHaveBeenCalledTimes(1);
+    expect(gemini.editImage).not.toHaveBeenCalled();
+    expect(gemini.generateImage).not.toHaveBeenCalled();
     expect(() => configured.generateImage('image', 'offline')).toThrow(
       'chưa được cấu hình',
     );

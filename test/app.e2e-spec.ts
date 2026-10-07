@@ -28,6 +28,7 @@ const analysis = {
   },
 };
 const ai = {
+  validateSelection: jest.fn(),
   analyzeProductFromImage: jest.fn(() => Promise.resolve(analysis)),
   generateMockupPrompts: jest.fn((_analysis: unknown, count: number) =>
     Promise.resolve(Array.from({ length: count }, (_, i) => 'prompt ' + i)),

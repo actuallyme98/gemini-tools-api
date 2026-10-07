@@ -42,6 +42,6 @@ export interface AIProviderCatalog {
     name: string;
     available: boolean;
     capabilities: AICapability[];
-    routing: Record<AICapability, string>;
+    routing: Record<AICapability, string | null>;
   }[];
 }

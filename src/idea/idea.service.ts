@@ -24,6 +24,7 @@ export class IdeaService {
     signal?: AbortSignal,
     provider?: string,
   ) {
+    this.aiService.validateSelection(provider, ['text', 'image']);
     const base64Image = file.buffer.toString('base64');
 
     const ideas = await withRetry(
@@ -68,6 +69,7 @@ export class IdeaService {
   }) {
     const { productImage, referenceImages, variations, signal, provider } =
       params;
+    this.aiService.validateSelection(provider, ['image']);
     const productImageBase64 = productImage.buffer.toString('base64');
 
     const results: string[] = [];

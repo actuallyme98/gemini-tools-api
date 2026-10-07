@@ -10,7 +10,10 @@ describe('Batch cancellation', () => {
     });
     const upload = jest.fn();
     const service = new IdeaService(
-      { generateImagesFromReferalImages: generate } as unknown as AIService,
+      {
+        generateImagesFromReferalImages: generate,
+        validateSelection: jest.fn(),
+      } as unknown as AIService,
       { upload } as unknown as R2Service,
     );
     await expect(

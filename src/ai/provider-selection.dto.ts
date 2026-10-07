@@ -7,7 +7,7 @@ export const providerSelectionSchema = {
   pattern: '^[a-z0-9][a-z0-9_-]*$',
   example: 'shopaikey',
   description:
-    'Optional provider ID from GET /api/ai/providers. Unsupported or unconfigured capabilities use system defaults. Omit for system defaults.',
+    'Optional provider ID from GET /api/ai/providers. All AI steps use this provider; unsupported or unconfigured tasks return HTTP 400. Omit for system defaults.',
 };
 
 export class ProviderSelectionDto {

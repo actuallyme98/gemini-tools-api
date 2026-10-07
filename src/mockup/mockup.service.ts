@@ -17,6 +17,7 @@ export class MockupService {
     signal?: AbortSignal,
     provider?: string,
   ) {
+    this.aiService.validateSelection(provider, ['image']);
     const base64Image = file.buffer.toString('base64');
 
     const handlePrompt = async (prompt: string, index: number) => {
@@ -56,6 +57,7 @@ export class MockupService {
     signal?: AbortSignal,
     provider?: string,
   ) {
+    this.aiService.validateSelection(provider, ['vision', 'text']);
     return withRetry(
       async () => {
         const garmentProfile = await this.aiService.analyzeProductFromImage(

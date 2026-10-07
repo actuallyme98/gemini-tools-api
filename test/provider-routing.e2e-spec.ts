@@ -116,14 +116,23 @@ describe('Client-selected provider routing', () => {
     expect(gemini.generateJSON).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
   });
-  it('uses text-only selection for prompts and default vision in a multi-step request', async () => {
-    await post('mockups/generate-prompts', { count: '1' }, 'vyceai')
-      .expect(201)
-      .expect(['scene']);
-    expect(gemini.generateJSON).toHaveBeenCalledTimes(1);
-    expect(vyceai.generateJSON).toHaveBeenCalledTimes(1);
-    expect(shopaikey.generateJSON).not.toHaveBeenCalled();
-  });
+  it.each([
+    ['mockups/generate-prompts', { count: '1' }],
+    ['ideas/analyze-product', {}],
+    ['mockups/generate-mockups', { prompts: '["edit"]' }],
+    ['ideas/generate-ideas', { count: '1', basePrompt: 'summer' }],
+    ['ideas/generate-images-from-referal-images', { variations: '1' }],
+  ] as [string, Record<string, string>][])(
+    'rejects unsupported selections before any AI step on %s',
+    async (endpoint, fields) => {
+      await post(endpoint, fields, 'vyceai').expect(400);
+      expect(gemini.generateJSON).not.toHaveBeenCalled();
+      expect(vyceai.generateJSON).not.toHaveBeenCalled();
+      expect(gemini.editImage).not.toHaveBeenCalled();
+      expect(shopaikey.editImage).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+    },
+  );
   it('routes selected analysis and image editing, and keeps omitted selections at defaults', async () => {
     await post('ideas/analyze-product', {}, 'shopaikey').expect(201);
     await post(

@@ -146,17 +146,22 @@ export class AIService implements OnModuleInit {
           available: capabilities.length > 0,
           capabilities,
           routing: {
-            text: capabilities.includes('text') ? provider.id : defaults.text,
-            vision: capabilities.includes('vision')
-              ? provider.id
-              : defaults.vision,
-            image: capabilities.includes('image')
-              ? provider.id
-              : defaults.image,
+            text: capabilities.includes('text') ? provider.id : null,
+            vision: capabilities.includes('vision') ? provider.id : null,
+            image: capabilities.includes('image') ? provider.id : null,
           },
         };
       }),
     };
+  }
+
+  /** Validate every step before a batch can start paid generation. */
+  validateSelection(
+    providerId: string | undefined,
+    capabilities: readonly AICapability[],
+  ): void {
+    for (const capability of capabilities)
+      this.providerFor(capability, providerId);
   }
 
   private configuredCapabilities(provider: AIProvider): AICapability[] {
@@ -191,8 +196,14 @@ export class AIService implements OnModuleInit {
           'Provider AI chưa được cấu hình trên máy chủ.',
         );
       if (capabilities.includes(capability)) return selected;
-      // Only unsupported/unconfigured capabilities use the system default.
-      // Execution errors from a selected provider are never retried on another provider.
+      const task = {
+        text: 'văn bản',
+        vision: 'phân tích ảnh',
+        image: 'tạo / sửa ảnh',
+      }[capability];
+      throw new BadRequestException(
+        `Provider ${selected.name || selected.id} chưa hỗ trợ hoặc chưa được cấu hình cho tác vụ ${task}. Hãy chọn provider khác.`,
+      );
     }
     const key = `AI_${capability.toUpperCase()}_PROVIDER`;
     const id =

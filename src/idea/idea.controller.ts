@@ -1,3 +1,7 @@
+import {
+  ProviderSelectionDto,
+  providerSelectionSchema,
+} from '../ai/provider-selection.dto';
 import type { Response } from 'express';
 import { requestSignal } from '../common/request-signal';
 import { multerConfig, requireImage } from '../common/multer.config';
@@ -30,6 +34,7 @@ export class IdeaController {
     schema: {
       type: 'object',
       properties: {
+        provider: providerSelectionSchema,
         image: {
           type: 'string',
           format: 'binary',
@@ -38,8 +43,14 @@ export class IdeaController {
       required: ['image'],
     },
   })
-  async analyzeProductController(@UploadedFile() file: Express.Multer.File) {
-    return this.ideaService.analyzeProductFromImage(requireImage(file));
+  async analyzeProductController(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: ProviderSelectionDto,
+  ) {
+    return this.ideaService.analyzeProductFromImage(
+      requireImage(file),
+      body.provider,
+    );
   }
 
   @Post('generate-ideas')
@@ -49,6 +60,7 @@ export class IdeaController {
     schema: {
       type: 'object',
       properties: {
+        provider: providerSelectionSchema,
         image: {
           type: 'string',
           format: 'binary',
@@ -72,6 +84,7 @@ export class IdeaController {
       body.basePrompt,
       body.count,
       requestSignal(response),
+      body.provider,
     );
   }
 
@@ -90,6 +103,7 @@ export class IdeaController {
     schema: {
       type: 'object',
       properties: {
+        provider: providerSelectionSchema,
         productImage: {
           type: 'string',
           format: 'binary',
@@ -129,6 +143,7 @@ export class IdeaController {
       referenceImages: files.referenceImages?.map((file) => requireImage(file)),
       variations: body.variations,
       signal: requestSignal(response),
+      provider: body.provider,
     });
   }
 }

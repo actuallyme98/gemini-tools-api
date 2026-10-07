@@ -152,7 +152,11 @@ describe('Image API contracts (no external services)', () => {
         .field('count', '2'),
     ).expect(201);
     expect(res.body).toHaveLength(2);
-    expect(ai.generateIdeasFromAttributes).toHaveBeenCalledWith('new ideas', 2);
+    expect(ai.generateIdeasFromAttributes).toHaveBeenCalledWith(
+      'new ideas',
+      2,
+      undefined,
+    );
     expect(ai.editImage).toHaveBeenCalledTimes(2);
   });
   it('generates exactly 3 reference variations with separate AI calls', async () => {
@@ -173,6 +177,7 @@ describe('Image API contracts (no external services)', () => {
     expect(ai.generateImagesFromReferalImages).toHaveBeenNthCalledWith(
       2,
       expect.objectContaining({ variations: 1, variationIndex: 2 }),
+      undefined,
     );
   });
   it.each(['0', '11', '2abc'])(

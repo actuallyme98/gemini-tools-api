@@ -5,6 +5,7 @@ import { GoogleGenAIProvider } from '../ai/providers/google-genai.provider';
 
 @Injectable()
 export class GeminiService extends GoogleGenAIProvider {
+  readonly name = 'Gemini';
   constructor(config: ConfigService) {
     super(config, {
       id: 'gemini',

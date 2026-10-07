@@ -105,3 +105,13 @@ npm test -- --runInBand
 ```
 
 Unit tests dùng mock provider và mock SDK, không gửi ảnh hay gọi API trả phí. E2E tests khởi tạo endpoint thật với AI/R2 giả lập, kiểm tra multipart, giới hạn đầu vào và số lượng ảnh đầu ra. Xem [hợp đồng frontend/API](frontend-api.md).
+
+## Client provider selection
+
+GET /api/ai/providers lists registered providers, configured capabilities, availability and effective routing for text, vision and image tasks. No credentials or configuration errors are returned.
+
+All five multipart image endpoints accept an optional provider field (e.g. gemini, vyceai, shopaikey). Omit it to keep AI_PROVIDER and per-capability environment defaults. Selection applies only to that request and all its steps/variations; it never changes global configuration.
+
+A selected provider handles its configured capabilities. Unsupported or unconfigured capabilities use the corresponding system default; the sidebar displays this routing. For example, text-only VyceAI generates prompts/ideas, while default vision and image providers analyze/edit images. Runtime errors never trigger a switch to another provider. Unknown IDs or providers with no configured capabilities return HTTP 400 before AI generation or R2 upload. Startup still validates all system defaults strictly.
+
+Availability means local configuration is complete, not a live upstream status check. Register new adapters in AI_PROVIDERS and optionally provide a name for the client label.

@@ -5,6 +5,7 @@ import { GoogleGenAIProvider } from './google-genai.provider';
 
 @Injectable()
 export class ShopAIKeyProvider extends GoogleGenAIProvider {
+  readonly name = 'ShopAIKey';
   constructor(config: ConfigService) {
     super(config, {
       id: 'shopaikey',

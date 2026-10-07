@@ -1,3 +1,4 @@
+import { providerSelectionSchema } from '../ai/provider-selection.dto';
 import type { Response } from 'express';
 import { requestSignal } from '../common/request-signal';
 import { multerConfig, requireImage } from '../common/multer.config';
@@ -27,6 +28,7 @@ export class MockupController {
     schema: {
       type: 'object',
       properties: {
+        provider: providerSelectionSchema,
         image: {
           type: 'string',
           format: 'binary',
@@ -48,6 +50,7 @@ export class MockupController {
       requireImage(file),
       body.count,
       requestSignal(response),
+      body.provider,
     );
   }
 
@@ -58,6 +61,7 @@ export class MockupController {
     schema: {
       type: 'object',
       properties: {
+        provider: providerSelectionSchema,
         image: {
           type: 'string',
           format: 'binary',
@@ -79,6 +83,7 @@ export class MockupController {
       requireImage(file),
       dto.prompts,
       requestSignal(response),
+      dto.provider,
     );
   }
 }

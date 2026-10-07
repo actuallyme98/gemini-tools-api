@@ -13,8 +13,8 @@ export class IdeaService {
     private readonly r2Service: R2Service,
   ) {}
 
-  async analyzeProductFromImage(file: Express.Multer.File) {
-    return this.aiService.analyzeProductFromImage(file);
+  async analyzeProductFromImage(file: Express.Multer.File, provider?: string) {
+    return this.aiService.analyzeProductFromImage(file, provider);
   }
 
   async generateIdeasFromImage(
@@ -22,11 +22,13 @@ export class IdeaService {
     basePrompt: string,
     count = 3,
     signal?: AbortSignal,
+    provider?: string,
   ) {
     const base64Image = file.buffer.toString('base64');
 
     const ideas = await withRetry(
-      () => this.aiService.generateIdeasFromAttributes(basePrompt, count),
+      () =>
+        this.aiService.generateIdeasFromAttributes(basePrompt, count, provider),
       { signal },
     );
 
@@ -36,11 +38,14 @@ export class IdeaService {
       signal?.throwIfAborted();
       const editedBuffer = await withRetry(
         () =>
-          this.aiService.editImage({
-            base64Image,
-            mimeType: file.mimetype,
-            prompt,
-          }),
+          this.aiService.editImage(
+            {
+              base64Image,
+              mimeType: file.mimetype,
+              prompt,
+            },
+            provider,
+          ),
         { signal },
       );
 
@@ -59,8 +64,10 @@ export class IdeaService {
     referenceImages?: Express.Multer.File[];
     variations?: number;
     signal?: AbortSignal;
+    provider?: string;
   }) {
-    const { productImage, referenceImages, variations, signal } = params;
+    const { productImage, referenceImages, variations, signal, provider } =
+      params;
     const productImageBase64 = productImage.buffer.toString('base64');
 
     const results: string[] = [];
@@ -69,16 +76,19 @@ export class IdeaService {
       signal?.throwIfAborted();
       const buffers = await withRetry(
         () =>
-          this.aiService.generateImagesFromReferalImages({
-            productImageBase64,
-            productMimeType: productImage.mimetype,
-            referenceImages: referenceImages?.map((file) => ({
-              base64: file.buffer.toString('base64'),
-              mimeType: file.mimetype,
-            })),
-            variations: 1,
-            variationIndex: i + 1,
-          }),
+          this.aiService.generateImagesFromReferalImages(
+            {
+              productImageBase64,
+              productMimeType: productImage.mimetype,
+              referenceImages: referenceImages?.map((file) => ({
+                base64: file.buffer.toString('base64'),
+                mimeType: file.mimetype,
+              })),
+              variations: 1,
+              variationIndex: i + 1,
+            },
+            provider,
+          ),
         { signal },
       );
       if (!buffers[0])

@@ -52,6 +52,91 @@ describe('AIService provider routing', () => {
     expect(vyceai.validateConfiguration).not.toHaveBeenCalled();
   });
 
+  it('keeps concurrent request overrides independent from system defaults', async () => {
+    const custom = provider('custom', ['text', 'vision', 'image']);
+    const service = new AIService(new ConfigService({}), [
+      gemini,
+      vyceai,
+      custom,
+    ]);
+    gemini.generateJSON.mockResolvedValue(['default prompt']);
+    vyceai.generateJSON.mockResolvedValue(['vyce prompt']);
+    custom.generateJSON.mockResolvedValue(['custom prompt']);
+    expect(
+      await Promise.all([
+        service.generateMockupPrompts(analysis, 1, 'vyceai'),
+        service.generateMockupPrompts(analysis, 1, 'custom'),
+        service.generateMockupPrompts(analysis, 1),
+      ]),
+    ).toEqual([['vyce prompt'], ['custom prompt'], ['default prompt']]);
+    await service.editImage(
+      { base64Image: '', mimeType: 'image/png', prompt: 'edit' },
+      'custom',
+    );
+    expect(custom.editImage).toHaveBeenCalledTimes(1);
+    expect(gemini.editImage).not.toHaveBeenCalled();
+    expect(service.getProviders().defaults).toEqual({
+      text: 'gemini',
+      vision: 'gemini',
+      image: 'gemini',
+    });
+  });
+
+  it('reports capability fallback and unavailable providers without leaking configuration errors', async () => {
+    const custom = provider('custom', ['text', 'vision', 'image']);
+    custom.validateConfiguration.mockImplementation((capability?: unknown) => {
+      if (capability === 'image')
+        throw new Error('private image configuration');
+    });
+    const offline = provider('offline', ['text']);
+    offline.validateConfiguration.mockImplementation(() => {
+      throw new Error('private API key');
+    });
+    const configured = new AIService(new ConfigService({}), [
+      gemini,
+      vyceai,
+      custom,
+      offline,
+    ]);
+    const catalog = configured.getProviders();
+    expect(catalog.providers).toContainEqual({
+      id: 'vyceai',
+      name: 'vyceai',
+      available: true,
+      capabilities: ['text'],
+      routing: { text: 'vyceai', vision: 'gemini', image: 'gemini' },
+    });
+    expect(
+      catalog.providers.find((entry) => entry.id === 'custom'),
+    ).toMatchObject({
+      capabilities: ['text', 'vision'],
+      routing: { image: 'gemini' },
+    });
+    expect(JSON.stringify(catalog)).not.toContain('private');
+    await configured.editImage(
+      { base64Image: '', mimeType: 'image/png', prompt: 'edit' },
+      'vyceai',
+    );
+    await configured.generateImage('image', 'custom');
+    expect(gemini.editImage).toHaveBeenCalledTimes(1);
+    expect(gemini.generateImage).toHaveBeenCalledTimes(1);
+    expect(() => configured.generateImage('image', 'offline')).toThrow(
+      'chưa được cấu hình',
+    );
+    expect(() => configured.generateImage('image', 'unknown')).toThrow(
+      'không hợp lệ',
+    );
+  });
+
+  it('propagates selected provider execution errors without spending on a fallback', async () => {
+    const service = new AIService(new ConfigService({}), [gemini, vyceai]);
+    vyceai.generateJSON.mockRejectedValue(new Error('Upstream unavailable'));
+    await expect(
+      service.generateMockupPrompts(analysis, 1, 'vyceai'),
+    ).rejects.toThrow('Upstream unavailable');
+    expect(gemini.generateJSON).not.toHaveBeenCalled();
+  });
+
   it('routes text to VyceAI and product analysis and image editing to Gemini', async () => {
     const service = new AIService(
       new ConfigService({ AI_TEXT_PROVIDER: 'vyceai' }),

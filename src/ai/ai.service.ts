@@ -1,9 +1,15 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import {
+  BadRequestException,
+  Inject,
+  Injectable,
+  OnModuleInit,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AI_PROVIDERS } from './ai-provider';
 import type {
   AICapability,
   AIProvider,
+  AIProviderCatalog,
   EditImageParams,
   ReferenceImagesParams,
 } from './ai-provider';
@@ -47,8 +53,9 @@ export class AIService implements OnModuleInit {
 
   async analyzeProductFromImage(
     file: Express.Multer.File,
+    providerId?: string,
   ): Promise<ImageAnalysis> {
-    const result = await this.providerFor('vision').generateJSON(
+    const result = await this.providerFor('vision', providerId).generateJSON(
       ANALYZE_PRODUCT_FROM_IMAGE_PROMPT,
       { base64: file.buffer.toString('base64'), mimeType: file.mimetype },
     );
@@ -61,8 +68,9 @@ export class AIService implements OnModuleInit {
   async generateMockupPrompts(
     analysis: ImageAnalysis,
     count: number,
+    providerId?: string,
   ): Promise<string[]> {
-    const result = await this.providerFor('text').generateJSON(
+    const result = await this.providerFor('text', providerId).generateJSON(
       toGenerateMockupPrompts(analysis, count),
     );
     if (
@@ -82,8 +90,9 @@ export class AIService implements OnModuleInit {
   async generateIdeasFromAttributes(
     basePrompt: string,
     count?: number,
+    providerId?: string,
   ): Promise<Idea[]> {
-    const result = await this.providerFor('text').generateJSON(
+    const result = await this.providerFor('text', providerId).generateJSON(
       `${basePrompt}${count ? `\nGenerate exactly ${count} ideas.` : ''}\n\nReturn only a non-empty JSON array of objects with string fields title, description, and prompt. Each prompt must be a complete instruction for editing the product image.`,
     );
     if (
@@ -97,30 +106,94 @@ export class AIService implements OnModuleInit {
     return result;
   }
 
-  generateImage(prompt: string): Promise<Buffer> {
-    const provider = this.providerFor('image');
+  generateImage(prompt: string, providerId?: string): Promise<Buffer> {
+    const provider = this.providerFor('image', providerId);
     if (!provider.generateImage)
       throw new Error('AI provider cannot generate images');
     return provider.generateImage(prompt);
   }
 
-  editImage(params: EditImageParams): Promise<Buffer> {
-    const provider = this.providerFor('image');
+  editImage(params: EditImageParams, providerId?: string): Promise<Buffer> {
+    const provider = this.providerFor('image', providerId);
     if (!provider.editImage) throw new Error('AI provider cannot edit images');
     return provider.editImage(params);
   }
 
   generateImagesFromReferalImages(
     params: ReferenceImagesParams,
+    providerId?: string,
   ): Promise<Buffer[]> {
-    const provider = this.providerFor('image');
+    const provider = this.providerFor('image', providerId);
     if (!provider.generateImagesFromReferalImages) {
       throw new Error('AI provider cannot generate images from references');
     }
     return provider.generateImagesFromReferalImages(params);
   }
 
-  private providerFor(capability: AICapability): AIProvider {
+  getProviders(): AIProviderCatalog {
+    const defaults = {
+      text: this.providerFor('text').id,
+      vision: this.providerFor('vision').id,
+      image: this.providerFor('image').id,
+    };
+    return {
+      defaults,
+      providers: [...this.providers.values()].map((provider) => {
+        const capabilities = this.configuredCapabilities(provider);
+        return {
+          id: provider.id,
+          name: provider.name || provider.id,
+          available: capabilities.length > 0,
+          capabilities,
+          routing: {
+            text: capabilities.includes('text') ? provider.id : defaults.text,
+            vision: capabilities.includes('vision')
+              ? provider.id
+              : defaults.vision,
+            image: capabilities.includes('image')
+              ? provider.id
+              : defaults.image,
+          },
+        };
+      }),
+    };
+  }
+
+  private configuredCapabilities(provider: AIProvider): AICapability[] {
+    return provider.capabilities.filter((capability) => {
+      if (
+        capability === 'image' &&
+        (!provider.generateImage ||
+          !provider.editImage ||
+          !provider.generateImagesFromReferalImages)
+      )
+        return false;
+      try {
+        provider.validateConfiguration(capability);
+        return true;
+      } catch {
+        // Configuration errors may contain private configuration; expose availability only.
+        return false;
+      }
+    });
+  }
+
+  private providerFor(
+    capability: AICapability,
+    providerId?: string,
+  ): AIProvider {
+    if (providerId !== undefined) {
+      const selected = this.providers.get(providerId);
+      if (!selected) throw new BadRequestException('Provider AI không hợp lệ.');
+      const capabilities = this.configuredCapabilities(selected);
+      if (!capabilities.length)
+        throw new BadRequestException(
+          'Provider AI chưa được cấu hình trên máy chủ.',
+        );
+      if (capabilities.includes(capability)) return selected;
+      // Only unsupported/unconfigured capabilities use the system default.
+      // Execution errors from a selected provider are never retried on another provider.
+    }
     const key = `AI_${capability.toUpperCase()}_PROVIDER`;
     const id =
       this.config.get<string>(key) ||

@@ -22,6 +22,7 @@ export interface ReferenceImagesParams {
 /** Implement this contract and register the adapter in AI_PROVIDERS. */
 export interface AIProvider {
   readonly id: string;
+  readonly name?: string;
   readonly capabilities: readonly AICapability[];
   validateConfiguration(capability: AICapability): void;
   generateJSON(prompt: string, image?: AIInputImage): Promise<unknown>;
@@ -33,3 +34,14 @@ export interface AIProvider {
 }
 
 export const AI_PROVIDERS = Symbol('AI_PROVIDERS');
+
+export interface AIProviderCatalog {
+  defaults: Record<AICapability, string>;
+  providers: {
+    id: string;
+    name: string;
+    available: boolean;
+    capabilities: AICapability[];
+    routing: Record<AICapability, string>;
+  }[];
+}

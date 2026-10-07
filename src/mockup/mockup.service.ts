@@ -15,17 +15,21 @@ export class MockupService {
     file: Express.Multer.File,
     prompts: string[],
     signal?: AbortSignal,
+    provider?: string,
   ) {
     const base64Image = file.buffer.toString('base64');
 
     const handlePrompt = async (prompt: string, index: number) => {
       const editedBuffer = await withRetry(
         () =>
-          this.aiService.editImage({
-            base64Image,
-            mimeType: file.mimetype,
-            prompt,
-          }),
+          this.aiService.editImage(
+            {
+              base64Image,
+              mimeType: file.mimetype,
+              prompt,
+            },
+            provider,
+          ),
         { signal },
       );
 
@@ -50,16 +54,20 @@ export class MockupService {
     image: Express.Multer.File,
     mockupCount: number,
     signal?: AbortSignal,
+    provider?: string,
   ) {
     return withRetry(
       async () => {
-        const garmentProfile =
-          await this.aiService.analyzeProductFromImage(image);
+        const garmentProfile = await this.aiService.analyzeProductFromImage(
+          image,
+          provider,
+        );
 
         signal?.throwIfAborted();
         return this.aiService.generateMockupPrompts(
           garmentProfile,
           mockupCount,
+          provider,
         );
       },
       { signal },

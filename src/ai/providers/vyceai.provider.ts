@@ -7,6 +7,7 @@ import { parseAIJSON } from '../json.util';
 
 @Injectable()
 export class VyceAIProvider implements AIProvider {
+  readonly name = 'VyceAI';
   readonly id = 'vyceai';
   private client?: OpenAI;
 

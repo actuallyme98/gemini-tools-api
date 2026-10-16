@@ -1,46 +1,31 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
-import type { ChatCompletionContentPart } from 'openai/resources/chat/completions';
-import type { AICapability, AIInputImage, AIProvider } from '../ai-provider';
+import type { AIProvider, AICapability } from '../ai-provider';
 import { parseAIJSON } from '../json.util';
-import { ApiError } from '../../common/api-error';
 
+/** Internal text provider. It is deliberately excluded from the image-provider registry. */
 @Injectable()
 export class VyceAIProvider implements AIProvider {
-  readonly name = 'VyceAI';
   readonly id = 'vyceai';
+  readonly name = 'VyceAI';
+  readonly capabilities = ['text'] as const;
+  private readonly logger = new Logger(VyceAIProvider.name);
   private client?: OpenAI;
+  private modelCache?: { expires: number; models: string[] };
+  private modelRequest?: Promise<string[]>;
 
   constructor(private readonly config: ConfigService) {}
 
-  get capabilities(): readonly AICapability[] {
-    return this.config.get<boolean>('VYCEAI_VISION_ENABLED', false)
-      ? ['text', 'vision']
-      : ['text'];
-  }
-
   validateConfiguration(capability: AICapability): void {
-    if (!this.capabilities.includes(capability)) {
-      throw new Error(
-        `VyceAI does not support configured capability: ${capability}`,
-      );
-    }
-    if (!this.config.get<string>('VYCEAI_API_KEY')) {
-      throw new Error('VYCEAI_API_KEY is required when using VyceAI');
-    }
-    const modelKey = this.modelKey(capability);
-    if (!this.config.get<string>(modelKey)) {
-      throw new Error(
-        `${modelKey} is required when using VyceAI for ${capability}`,
-      );
-    }
+    if (capability !== 'text')
+      throw new Error('VyceAI is only used for internal text routing');
+    if (!this.config.get<string>('VYCEAI_API_KEY'))
+      throw new Error('VYCEAI_API_KEY is required for VyceAI text');
   }
 
-  async generateJSON(prompt: string, image?: AIInputImage): Promise<unknown> {
-    const capability = image ? 'vision' : 'text';
-    this.validateConfiguration(capability);
-
+  private getClient(): OpenAI {
+    this.validateConfiguration('text');
     this.client ??= new OpenAI({
       apiKey: this.config.getOrThrow<string>('VYCEAI_API_KEY'),
       baseURL: this.config.get<string>(
@@ -48,63 +33,95 @@ export class VyceAIProvider implements AIProvider {
         'https://vyceai.com/v1',
       ),
       timeout: this.config.get<number>('VYCEAI_TIMEOUT_MS', 60000),
-      // Business services already use withRetry; avoid multiplying attempts.
       maxRetries: 0,
     });
+    return this.client;
+  }
 
-    const content: ChatCompletionContentPart[] = [
-      { type: 'text', text: prompt },
-    ];
-    if (image) {
-      const base64 = image.base64.includes(',')
-        ? image.base64.slice(image.base64.indexOf(',') + 1)
-        : image.base64;
-      content.push({
-        type: 'image_url',
-        image_url: { url: `data:${image.mimeType};base64,${base64}` },
-      });
+  async getPreferredModels(): Promise<string[]> {
+    if (this.modelCache && this.modelCache.expires > Date.now())
+      return this.modelCache.models;
+    if (this.modelRequest !== undefined) return this.modelRequest;
+    const request = this.fetchPreferredModels();
+    this.modelRequest = request;
+    try {
+      const models = await request;
+      this.modelCache = { models, expires: Date.now() + 60000 };
+      return models;
+    } finally {
+      this.modelRequest = undefined;
     }
+  }
 
-    const response = await this.client.chat.completions.create({
-      model: this.config.getOrThrow<string>(this.modelKey(capability)),
+  private async fetchPreferredModels(): Promise<string[]> {
+    const page = await this.getClient().models.list({
+      timeout: this.config.get<number>('VYCEAI_HEALTH_TIMEOUT_MS', 10000),
+    });
+    const ids = [
+      ...new Set(
+        page.data
+          .map((model) => model.id)
+          .filter((id) => /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(id)),
+      ),
+    ];
+    // Bound probes while allowing both preferred families to be checked.
+    return [
+      ...ids
+        .filter(
+          (id) =>
+            /^gpt[-._]/i.test(id) && !/image|audio|tts|embedding/i.test(id),
+        )
+        .slice(0, 2),
+      ...ids.filter((id) => /^claude[-._]/i.test(id)).slice(0, 2),
+    ];
+  }
+
+  async isHealthy(model: string): Promise<boolean> {
+    try {
+      const response = await this.getClient().chat.completions.create(
+        {
+          model,
+          messages: [{ role: 'user', content: 'Reply with only OK.' }],
+          max_tokens: 32,
+        },
+        { timeout: this.config.get<number>('VYCEAI_HEALTH_TIMEOUT_MS', 10000) },
+      );
+      const choice = response.choices[0];
+      const healthy =
+        choice?.finish_reason === 'stop' && !!choice.message.content?.trim();
+      if (!healthy) this.logger.warn(`Text health check failed: ${model}`);
+      return healthy;
+    } catch {
+      this.logger.warn(`Text health check failed: ${model}`);
+      return false;
+    }
+  }
+
+  async generateWithModel(prompt: string, model: string): Promise<unknown> {
+    const response = await this.getClient().chat.completions.create({
+      model,
       messages: [
         {
           role: 'system',
           content:
             'Return only valid JSON matching the requested format. No markdown or explanations.',
         },
-        { role: 'user', content: image ? content : prompt },
+        { role: 'user', content: prompt },
       ],
     });
-
     const choice = response.choices[0];
-    if (choice?.finish_reason === 'content_filter')
-      throw new ApiError(
-        422,
-        'AI_CONTENT_BLOCKED',
-        'VyceAI từ chối nội dung theo chính sách sử dụng.',
-        {
-          provider: this.id,
-          reason: 'content_filter',
-          suggestion: 'Điều chỉnh prompt hoặc chọn hình ảnh khác.',
-        },
-      );
-    if (choice?.finish_reason === 'length')
-      throw new ApiError(
-        502,
-        'AI_OUTPUT_TRUNCATED',
-        'Kết quả VyceAI bị cắt ngắn vì vượt giới hạn đầu ra.',
-        {
-          provider: this.id,
-          suggestion: 'Giảm số lượng kết quả hoặc rút gọn yêu cầu.',
-        },
-      );
-    return parseAIJSON(choice?.message.content);
+    if (choice?.finish_reason !== 'stop')
+      throw new Error('AI provider returned incomplete text output');
+    return parseAIJSON(choice.message.content);
   }
 
-  private modelKey(capability: AICapability): string {
-    return capability === 'vision'
-      ? 'VYCEAI_MODEL_VISION'
-      : 'VYCEAI_MODEL_TEXT';
+  async generateJSON(prompt: string): Promise<unknown> {
+    const models = await this.getPreferredModels();
+    for (const model of models) {
+      // Never reuse a previous request's health result.
+      if (await this.isHealthy(model))
+        return this.generateWithModel(prompt, model);
+    }
+    throw new Error('No healthy preferred VyceAI text model is available');
   }
 }

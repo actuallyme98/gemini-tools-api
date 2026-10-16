@@ -1,4 +1,4 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AI_PROVIDERS } from './ai-provider';
 import type {
@@ -9,10 +9,12 @@ import type {
   ReferenceImagesParams,
   BackgroundReplacementParams,
   GeneratedImage,
+  AIImageModelCatalog,
 } from './ai-provider';
 import type { Idea, ImageAnalysis } from './types';
 import { ApiError } from '../common/api-error';
 import { externalServiceError } from '../common/external-service-error';
+import { TextRouterService } from './text-router.service';
 import {
   ANALYZE_PRODUCT_FROM_IMAGE_PROMPT,
   toGenerateMockupPrompts,
@@ -25,6 +27,7 @@ export class AIService implements OnModuleInit {
   constructor(
     private readonly config: ConfigService,
     @Inject(AI_PROVIDERS) providers: AIProvider[],
+    @Optional() private readonly textRouter?: TextRouterService,
   ) {
     for (const provider of providers) {
       if (this.providers.has(provider.id)) {
@@ -36,7 +39,10 @@ export class AIService implements OnModuleInit {
 
   onModuleInit(): void {
     for (const capability of ['text', 'vision', 'image'] as const) {
-      this.providerFor(capability).validateConfiguration(capability);
+      (capability === 'text' && this.usesAutoText()
+        ? this.textRouter
+        : this.providerFor(capability)
+      ).validateConfiguration(capability);
     }
     const imageProvider = this.providerFor('image');
     if (
@@ -76,7 +82,7 @@ export class AIService implements OnModuleInit {
     count: number,
     providerId?: string,
   ): Promise<string[]> {
-    const provider = this.providerFor('text', providerId);
+    const provider = this.textProvider(providerId);
     const result = await this.execute(provider, () =>
       provider.generateJSON(toGenerateMockupPrompts(analysis, count)),
     );
@@ -103,7 +109,7 @@ export class AIService implements OnModuleInit {
     count?: number,
     providerId?: string,
   ): Promise<Idea[]> {
-    const provider = this.providerFor('text', providerId);
+    const provider = this.textProvider(providerId);
     const result = await this.execute(provider, () =>
       provider.generateJSON(
         `${basePrompt}${count ? `\nGenerate exactly ${count} ideas.` : ''}\n\nReturn only a non-empty JSON array of objects with string fields title, description, and prompt. Each prompt must be a complete instruction for editing the product image.`,
@@ -124,20 +130,33 @@ export class AIService implements OnModuleInit {
     return result;
   }
 
-  generateImage(prompt: string, providerId?: string): Promise<Buffer> {
+  async generateImage(
+    prompt: string,
+    providerId?: string,
+    imageModel?: string,
+  ): Promise<Buffer> {
     const provider = this.providerFor('image', providerId);
     if (!provider.generateImage)
       throw new Error('AI provider cannot generate images');
-    return this.execute(provider, () => provider.generateImage(prompt));
+    await this.validateImageModel(providerId, imageModel);
+    return this.execute(provider, () =>
+      imageModel
+        ? provider.generateImage(prompt, imageModel)
+        : provider.generateImage(prompt),
+    );
   }
 
-  editImage(params: EditImageParams, providerId?: string): Promise<Buffer> {
+  async editImage(
+    params: EditImageParams,
+    providerId?: string,
+  ): Promise<Buffer> {
     const provider = this.providerFor('image', providerId);
     if (!provider.editImage) throw new Error('AI provider cannot edit images');
+    await this.validateImageModel(providerId, params.imageModel);
     return this.execute(provider, () => provider.editImage(params));
   }
 
-  generateImagesFromReferalImages(
+  async generateImagesFromReferalImages(
     params: ReferenceImagesParams,
     providerId?: string,
   ): Promise<Buffer[]> {
@@ -145,6 +164,7 @@ export class AIService implements OnModuleInit {
     if (!provider.generateImagesFromReferalImages) {
       throw new Error('AI provider cannot generate images from references');
     }
+    await this.validateImageModel(providerId, params.imageModel);
     return this.execute(provider, async () => {
       const images = await provider.generateImagesFromReferalImages(params);
       if (
@@ -167,7 +187,7 @@ export class AIService implements OnModuleInit {
     }
   }
 
-  replaceBackground(
+  async replaceBackground(
     params: BackgroundReplacementParams,
     providerId?: string,
   ): Promise<GeneratedImage> {
@@ -179,6 +199,7 @@ export class AIService implements OnModuleInit {
         `Provider ${provider.name || provider.id} chưa hỗ trợ thay background từ ảnh tham chiếu. Hãy chọn provider khác.`,
         { provider: provider.id },
       );
+    await this.validateImageModel(providerId, params.imageModel);
     return this.execute(provider, async () => {
       const result = await provider.replaceBackground(params);
       if (
@@ -194,12 +215,21 @@ export class AIService implements OnModuleInit {
 
   getProviders(): AIProviderCatalog {
     const defaults = {
-      text: this.providerFor('text').id,
+      text: this.textProvider().id,
       vision: this.providerFor('vision').id,
       image: this.providerFor('image').id,
     };
     return {
       defaults,
+      ...(this.usesAutoText()
+        ? {
+            textRouting: {
+              primary: 'vyceai',
+              fallback: 'shopaikey',
+              healthRequired: true as const,
+            },
+          }
+        : {}),
       providers: [...this.providers.values()].map((provider) => {
         const capabilities = this.configuredCapabilities(provider);
         return {
@@ -208,7 +238,11 @@ export class AIService implements OnModuleInit {
           available: capabilities.length > 0,
           capabilities,
           routing: {
-            text: capabilities.includes('text') ? provider.id : null,
+            text: this.usesAutoText()
+              ? 'auto-text'
+              : capabilities.includes('text')
+                ? provider.id
+                : null,
             vision: capabilities.includes('vision') ? provider.id : null,
             image: capabilities.includes('image') ? provider.id : null,
           },
@@ -217,13 +251,72 @@ export class AIService implements OnModuleInit {
     };
   }
 
+  async getImageModels(
+    providerId: string,
+    refresh = false,
+  ): Promise<AIImageModelCatalog> {
+    // Listing requires configured credentials, not a configured default image model.
+    const provider = this.providerFor('text', providerId);
+    if (!provider.getImageModels)
+      throw new ApiError(
+        400,
+        'AI_IMAGE_MODEL_UNSUPPORTED',
+        'Provider này chưa hỗ trợ chọn model ảnh.',
+        { provider: provider.id },
+      );
+    return this.execute(provider, () => provider.getImageModels(refresh));
+  }
+
+  async validateImageModel(
+    providerId: string | undefined,
+    imageModel?: string,
+  ): Promise<void> {
+    if (imageModel === undefined) return;
+    const provider = this.providerFor('image', providerId);
+    if (!provider.getImageModels)
+      throw new ApiError(
+        400,
+        'AI_IMAGE_MODEL_UNSUPPORTED',
+        'Provider này chưa hỗ trợ chọn model ảnh.',
+        { provider: provider.id },
+      );
+    const catalog = await this.execute(provider, () =>
+      provider.getImageModels(),
+    );
+    if (!catalog.models.some((model) => model.id === imageModel))
+      throw new ApiError(
+        400,
+        'AI_IMAGE_MODEL_INVALID',
+        'Model ảnh đã chọn không khả dụng hoặc không tương thích với provider này.',
+        {
+          provider: provider.id,
+          suggestion: 'Tải lại danh sách model và chọn một model ảnh khả dụng.',
+        },
+      );
+  }
+
   /** Validate every step before a batch can start paid generation. */
   validateSelection(
     providerId: string | undefined,
     capabilities: readonly AICapability[],
   ): void {
-    for (const capability of capabilities)
-      this.providerFor(capability, providerId);
+    for (const capability of capabilities) {
+      if (capability === 'text' && this.usesAutoText())
+        this.textRouter.validateConfiguration('text');
+      else this.providerFor(capability, providerId);
+    }
+  }
+
+  private usesAutoText(): boolean {
+    return (
+      !!this.textRouter &&
+      this.config.get<boolean>('AI_AUTO_TEXT_ROUTING', true)
+    );
+  }
+  private textProvider(providerId?: string): AIProvider {
+    return this.usesAutoText()
+      ? this.textRouter
+      : this.providerFor('text', providerId);
   }
 
   private configuredCapabilities(provider: AIProvider): AICapability[] {

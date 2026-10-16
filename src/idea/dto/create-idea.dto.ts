@@ -1,4 +1,4 @@
-import { ProviderSelectionDto } from '../../ai/provider-selection.dto';
+import { ImageProviderSelectionDto } from '../../ai/provider-selection.dto';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
@@ -9,7 +9,7 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
-export class GenerateIdeaDTO extends ProviderSelectionDto {
+export class GenerateIdeaDTO extends ImageProviderSelectionDto {
   @ApiProperty()
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim() : value,
@@ -25,7 +25,7 @@ export class GenerateIdeaDTO extends ProviderSelectionDto {
   @Max(12)
   count = 3;
 }
-export class ReferenceImagesDTO extends ProviderSelectionDto {
+export class ReferenceImagesDTO extends ImageProviderSelectionDto {
   @ApiPropertyOptional({ default: 1, minimum: 1, maximum: 10 })
   @Type(() => Number)
   @IsInt()

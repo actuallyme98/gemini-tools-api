@@ -82,10 +82,11 @@ export abstract class GoogleGenAIProvider implements AIProvider {
 
   private async generateImageContent(
     contents: string | { role: string; parts: Part[] }[],
+    imageModel?: string,
   ): Promise<GenerateContentResponse> {
     this.validateConfiguration('image');
     const response = await this.imageGenai.models.generateContent({
-      model: this.modelImage,
+      model: imageModel ?? this.modelImage,
       contents,
       ...(this.providerConfig.imageResponseModalities
         ? { config: { responseModalities: ['TEXT', 'IMAGE'] } }
@@ -152,8 +153,8 @@ export abstract class GoogleGenAIProvider implements AIProvider {
     return parseAIJSON(text);
   }
 
-  async generateImage(prompt: string): Promise<Buffer> {
-    const response = await this.generateImageContent(prompt);
+  async generateImage(prompt: string, imageModel?: string): Promise<Buffer> {
+    const response = await this.generateImageContent(prompt, imageModel);
     for (const part of response.candidates?.[0]?.content?.parts ?? []) {
       if (part.inlineData?.data) {
         return Buffer.from(part.inlineData.data, 'base64');
@@ -173,25 +174,28 @@ export abstract class GoogleGenAIProvider implements AIProvider {
           : image.base64,
       },
     });
-    const response = await this.generateImageContent([
-      {
-        role: 'user',
-        parts: [
-          {
-            text: `Replace the background of the product in IMAGE 1 using ONLY the background/environment from IMAGE 2. Output ONE finished product photograph.
+    const response = await this.generateImageContent(
+      [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: `Replace the background of the product in IMAGE 1 using ONLY the background/environment from IMAGE 2. Output ONE finished product photograph.
 IMAGE 1 is the source of truth for the product. Preserve its exact identity, design, shape, proportions, material, colors, texture, print, logo and text. Preserve the product's camera angle and its full visible details. Do not redesign, repaint, stylize or add elements to the product.
 IMAGE 2 is a BACKGROUND reference, not a product or surface-design reference. Recreate its scene, layout, surfaces, colors and perspective as closely as possible. Remove the original foreground product/subject, people, captions and watermarks from IMAGE 2 before placing the product from IMAGE 1. Never copy its product, pattern, logo or text onto IMAGE 1.
 Remove the original background from IMAGE 1 and realistically place that same product into IMAGE 2's environment. Match lighting, contact shadows, reflections, scale and depth while preserving the product. Keep the product clearly visible and do not crop it. Do not add text or watermarks.
 Variation ${params.variationIndex ?? 1}: use only subtle placement/lighting variation; preserve the reference background and product identity.
 Additional user preferences (apply only when compatible with preserving the product and reference scene): ${params.instructions?.trim() || 'None.'}`,
-          },
-          { text: 'IMAGE 1 — ORIGINAL PRODUCT:' },
-          imagePart(params.productImage),
-          { text: 'IMAGE 2 — BACKGROUND REFERENCE:' },
-          imagePart(params.backgroundImage),
-        ],
-      },
-    ]);
+            },
+            { text: 'IMAGE 1 — ORIGINAL PRODUCT:' },
+            imagePart(params.productImage),
+            { text: 'IMAGE 2 — BACKGROUND REFERENCE:' },
+            imagePart(params.backgroundImage),
+          ],
+        },
+      ],
+      params.imageModel,
+    );
     for (const part of response.candidates?.[0]?.content?.parts ?? []) {
       if (part.inlineData?.data)
         return {
@@ -246,7 +250,10 @@ Additional user preferences (apply only when compatible with preserving the prod
       }
     }
 
-    const response = await this.generateImageContent([{ role: 'user', parts }]);
+    const response = await this.generateImageContent(
+      [{ role: 'user', parts }],
+      params.imageModel,
+    );
 
     const resultParts = response.candidates?.[0]?.content?.parts;
     if (!resultParts) {
@@ -272,15 +279,18 @@ Additional user preferences (apply only when compatible with preserving the prod
       ? params.base64Image.split(',')[1]
       : params.base64Image;
 
-    const response = await this.generateImageContent([
-      {
-        role: 'user',
-        parts: [
-          { text: params.prompt },
-          { inlineData: { mimeType: params.mimeType, data: base64Data } },
-        ],
-      },
-    ]);
+    const response = await this.generateImageContent(
+      [
+        {
+          role: 'user',
+          parts: [
+            { text: params.prompt },
+            { inlineData: { mimeType: params.mimeType, data: base64Data } },
+          ],
+        },
+      ],
+      params.imageModel,
+    );
 
     const parts = response.candidates?.[0]?.content?.parts;
     if (!parts) {

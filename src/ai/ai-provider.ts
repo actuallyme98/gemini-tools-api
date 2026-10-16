@@ -6,12 +6,14 @@ export interface AIInputImage {
 }
 
 export interface EditImageParams {
+  imageModel?: string;
   base64Image: string;
   mimeType: string;
   prompt: string;
 }
 
 export interface ReferenceImagesParams {
+  imageModel?: string;
   productImageBase64: string;
   productMimeType: string;
   referenceImages?: AIInputImage[];
@@ -20,6 +22,7 @@ export interface ReferenceImagesParams {
 }
 
 export interface BackgroundReplacementParams {
+  imageModel?: string;
   productImage: AIInputImage;
   backgroundImage: AIInputImage;
   instructions?: string;
@@ -31,6 +34,12 @@ export interface GeneratedImage {
   mimeType: string;
 }
 
+export interface AIImageModelCatalog {
+  provider: string;
+  defaultModel: string | null;
+  models: { id: string; name: string }[];
+}
+
 /** Implement this contract and register the adapter in AI_PROVIDERS. */
 export interface AIProvider {
   readonly id: string;
@@ -38,7 +47,8 @@ export interface AIProvider {
   readonly capabilities: readonly AICapability[];
   validateConfiguration(capability: AICapability): void;
   generateJSON(prompt: string, image?: AIInputImage): Promise<unknown>;
-  generateImage?(prompt: string): Promise<Buffer>;
+  generateImage?(prompt: string, imageModel?: string): Promise<Buffer>;
+  getImageModels?(refresh?: boolean): Promise<AIImageModelCatalog>;
   editImage?(params: EditImageParams): Promise<Buffer>;
   generateImagesFromReferalImages?(
     params: ReferenceImagesParams,
@@ -51,6 +61,7 @@ export interface AIProvider {
 export const AI_PROVIDERS = Symbol('AI_PROVIDERS');
 
 export interface AIProviderCatalog {
+  textRouting?: { primary: string; fallback: string; healthRequired: true };
   defaults: Record<AICapability, string>;
   providers: {
     id: string;

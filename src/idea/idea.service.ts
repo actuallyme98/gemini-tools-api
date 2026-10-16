@@ -23,8 +23,11 @@ export class IdeaService {
     count = 3,
     signal?: AbortSignal,
     provider?: string,
+    imageModel?: string,
   ) {
     this.aiService.validateSelection(provider, ['text', 'image']);
+    if (imageModel !== undefined)
+      await this.aiService.validateImageModel(provider, imageModel);
     const base64Image = file.buffer.toString('base64');
 
     const ideas = await withRetry(
@@ -44,6 +47,7 @@ export class IdeaService {
               base64Image,
               mimeType: file.mimetype,
               prompt,
+              ...(imageModel !== undefined ? { imageModel } : {}),
             },
             provider,
           ),
@@ -66,10 +70,19 @@ export class IdeaService {
     variations?: number;
     signal?: AbortSignal;
     provider?: string;
+    imageModel?: string;
   }) {
-    const { productImage, referenceImages, variations, signal, provider } =
-      params;
+    const {
+      productImage,
+      referenceImages,
+      variations,
+      signal,
+      provider,
+      imageModel,
+    } = params;
     this.aiService.validateSelection(provider, ['image']);
+    if (imageModel !== undefined)
+      await this.aiService.validateImageModel(provider, imageModel);
     const productImageBase64 = productImage.buffer.toString('base64');
 
     const results: string[] = [];
@@ -88,6 +101,7 @@ export class IdeaService {
               })),
               variations: 1,
               variationIndex: i + 1,
+              ...(imageModel !== undefined ? { imageModel } : {}),
             },
             provider,
           ),

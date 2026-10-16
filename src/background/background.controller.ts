@@ -16,7 +16,10 @@ import {
 import type { Response } from 'express';
 import { multerConfig, requireImage } from '../common/multer.config';
 import { requestSignal } from '../common/request-signal';
-import { providerSelectionSchema } from '../ai/provider-selection.dto';
+import {
+  providerSelectionSchema,
+  imageModelSelectionSchema,
+} from '../ai/provider-selection.dto';
 import { BackgroundService } from './background.service';
 import { ReplaceBackgroundDto } from './dto/replace-background.dto';
 
@@ -63,6 +66,7 @@ export class BackgroundController {
         productImage: { type: 'string', format: 'binary' },
         backgroundImage: { type: 'string', format: 'binary' },
         provider: providerSelectionSchema,
+        imageModel: imageModelSelectionSchema,
         instructions: { type: 'string', maxLength: 2000 },
         variationIndex: { type: 'integer', minimum: 1, maximum: 3, default: 1 },
       },
@@ -88,6 +92,7 @@ export class BackgroundController {
       instructions: body.instructions,
       variationIndex: body.variationIndex,
       provider: body.provider,
+      imageModel: body.imageModel,
       signal: requestSignal(response),
     });
   }

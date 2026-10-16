@@ -61,6 +61,116 @@ const imageResponse = {
 };
 
 describe('ShopAIKey native GenAI provider', () => {
+  afterEach(() => jest.restoreAllMocks());
+  it('normalizes the live catalog, filters incompatible models, caches requests and supports refresh', async () => {
+    const fetcher = jest.spyOn(global, 'fetch').mockImplementation(() =>
+      Promise.resolve(
+        new Response(
+          JSON.stringify({
+            apiKey: 'must-not-leak',
+            data: [
+              { id: 'gemini-3-pro-image-preview' },
+              {
+                name: 'models/gemini-3.1-flash-image-preview',
+                displayName: 'Flash Image',
+              },
+              { id: 'gpt-image-1' },
+              { id: 'gemini-2.5-flash' },
+              { id: 'gemini-nano-banana-2.1' },
+              { id: 'gemini-3-pro-image-preview' },
+              { id: 'gemini-image/../../private' },
+            ],
+          }),
+          { headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    );
+    const provider = createProvider({
+      SHOPAIKEY_MODEL_IMAGE: 'gemini-3.1-flash-image-preview',
+    });
+    const [catalog, concurrent] = await Promise.all([
+      provider.getImageModels(),
+      provider.getImageModels(),
+    ]);
+    expect(catalog).toEqual({
+      provider: 'shopaikey',
+      defaultModel: 'gemini-3.1-flash-image-preview',
+      models: [
+        {
+          id: 'gemini-3-pro-image-preview',
+          name: 'gemini-3-pro-image-preview',
+        },
+        { id: 'gemini-3.1-flash-image-preview', name: 'Flash Image' },
+      ],
+    });
+    expect(concurrent).toEqual(catalog);
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(catalog)).not.toContain('must-not-leak');
+    expect(fetcher.mock.calls[0][0]).toBe(
+      'https://api.shopaikey.com/v1beta/models',
+    );
+    await provider.getImageModels();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await provider.getImageModels(true);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('keeps per-request image models independent and preserves the default', async () => {
+    const provider = createProvider();
+    await provider.onModuleInit();
+    provider.create.mockResolvedValue(imageResponse);
+    const params = {
+      base64Image: 'aW1hZ2U=',
+      mimeType: 'image/png',
+      prompt: 'edit',
+    };
+    await Promise.all([
+      provider.editImage({ ...params, imageModel: 'first-image' }),
+      provider.editImage({ ...params, imageModel: 'second-image' }),
+    ]);
+    expect(
+      provider.create.mock.calls.map(
+        (call) => (call as [{ model: string }])[0].model,
+      ),
+    ).toEqual(['first-image', 'second-image']);
+    await provider.editImage(params);
+    expect(provider.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ model: 'native-image-model' }),
+    );
+    await provider.generateImagesFromReferalImages({
+      productImageBase64: 'aW1hZ2U=',
+      productMimeType: 'image/png',
+      imageModel: 'reference-image',
+    });
+    expect(provider.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ model: 'reference-image' }),
+    );
+    await provider.replaceBackground({
+      productImage: { base64: 'aW1hZ2U=', mimeType: 'image/png' },
+      backgroundImage: { base64: 'aW1hZ2U=', mimeType: 'image/png' },
+      imageModel: 'background-image',
+    });
+    expect(provider.create).toHaveBeenLastCalledWith(
+      expect.objectContaining({ model: 'background-image' }),
+    );
+  });
+  it('does not cache a failed catalog request', async () => {
+    const fetcher = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        new Response('{"error":{"message":"invalid api key"}}', {
+          status: 401,
+        }),
+      )
+      .mockResolvedValueOnce(new Response('{"models":[]}'));
+    const provider = createProvider();
+    await expect(provider.getImageModels()).rejects.toMatchObject({
+      status: 401,
+    });
+    await expect(provider.getImageModels()).resolves.toMatchObject({
+      models: [],
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
   it('sends the original product and a single background as separate roles, preserving output MIME type', async () => {
     const provider = createProvider();
     await provider.onModuleInit();

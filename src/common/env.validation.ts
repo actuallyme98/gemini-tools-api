@@ -10,6 +10,21 @@ export const envValidationSchema = Joi.object({
   AI_TEXT_PROVIDER: Joi.string(),
   AI_VISION_PROVIDER: Joi.string(),
   AI_IMAGE_PROVIDER: Joi.string(),
+  AI_AUTO_TEXT_ROUTING: Joi.boolean().default(true),
+  VYCEAI_API_KEY: Joi.string(),
+  VYCEAI_BASE_URL: Joi.string()
+    .uri({ scheme: ['https', 'http'] })
+    .default('https://vyceai.com/v1'),
+  VYCEAI_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .max(300000)
+    .default(60000),
+  VYCEAI_HEALTH_TIMEOUT_MS: Joi.number()
+    .integer()
+    .min(1000)
+    .max(30000)
+    .default(10000),
 
   // Credentials are required only for selected providers (AIService validation).
   GEMINI_API_KEY: Joi.string(),
@@ -17,19 +32,6 @@ export const envValidationSchema = Joi.object({
   GEMINI_MODEL_MULTIMODAL: Joi.string().default('gemini-2.5-flash'),
   GEMINI_MODEL_IMAGE: Joi.string().default('gemini-2.5-flash-image'),
   OPENAI_API_KEY: Joi.string(),
-
-  VYCEAI_API_KEY: Joi.string(),
-  VYCEAI_BASE_URL: Joi.string()
-    .uri({ scheme: ['http', 'https'] })
-    .default('https://vyceai.com/v1'),
-  VYCEAI_MODEL_TEXT: Joi.string(),
-  VYCEAI_MODEL_VISION: Joi.string(),
-  VYCEAI_VISION_ENABLED: Joi.boolean().default(false),
-  VYCEAI_TIMEOUT_MS: Joi.number()
-    .integer()
-    .min(1000)
-    .max(300000)
-    .default(60000),
 
   SHOPAIKEY_API_KEY: Joi.string(),
   SHOPAIKEY_BASE_URL: Joi.string()

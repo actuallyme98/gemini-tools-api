@@ -19,29 +19,16 @@ describe('AI environment configuration', () => {
     expect(result.error).toBeUndefined();
     expect(value).toMatchObject({
       AI_PROVIDER: 'gemini',
-      VYCEAI_VISION_ENABLED: false,
+      AI_AUTO_TEXT_ROUTING: true,
+      VYCEAI_HEALTH_TIMEOUT_MS: 10000,
     });
     expect(value).not.toHaveProperty('OPENAI_API_KEY');
   });
 
-  it('converts vision and timeout settings from dotenv strings', () => {
-    const result = envValidationSchema.validate({
-      ...infrastructure,
-      VYCEAI_VISION_ENABLED: 'true',
-      VYCEAI_TIMEOUT_MS: '30000',
-    });
-    const value: unknown = result.value;
-    expect(result.error).toBeUndefined();
-    expect(value).toMatchObject({
-      VYCEAI_VISION_ENABLED: true,
-      VYCEAI_TIMEOUT_MS: 30000,
-    });
-  });
-
   it.each([
-    { VYCEAI_BASE_URL: 'not-a-url' },
-    { VYCEAI_VISION_ENABLED: 'invalid' },
-    { VYCEAI_TIMEOUT_MS: '0' },
+    { VYCEAI_HEALTH_TIMEOUT_MS: '0' },
+    { VYCEAI_HEALTH_TIMEOUT_MS: '30001' },
+    { AI_AUTO_TEXT_ROUTING: 'invalid' },
     { SHOPAIKEY_BASE_URL: 'not-a-url' },
     { SHOPAIKEY_IMAGE_BASE_URL: 'not-a-url' },
     { SHOPAIKEY_TIMEOUT_MS: '0' },

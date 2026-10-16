@@ -5,23 +5,24 @@ import { GeminiService } from '../gemini/gemini.service';
 import { AI_PROVIDERS } from './ai-provider';
 import { AIService } from './ai.service';
 import { AIController } from './ai.controller';
-import { VyceAIProvider } from './providers/vyceai.provider';
 import { ShopAIKeyProvider } from './providers/shopaikey.provider';
+import { VyceAIProvider } from './providers/vyceai.provider';
+import { TextRouterService } from './text-router.service';
 
 @Module({
   imports: [ConfigModule, GeminiModule],
   controllers: [AIController],
   providers: [
-    VyceAIProvider,
     ShopAIKeyProvider,
+    VyceAIProvider,
+    TextRouterService,
     {
       provide: AI_PROVIDERS,
-      useFactory: (
-        gemini: GeminiService,
-        vyceai: VyceAIProvider,
-        shopaikey: ShopAIKeyProvider,
-      ) => [gemini, vyceai, shopaikey],
-      inject: [GeminiService, VyceAIProvider, ShopAIKeyProvider],
+      useFactory: (gemini: GeminiService, shopaikey: ShopAIKeyProvider) => [
+        gemini,
+        shopaikey,
+      ],
+      inject: [GeminiService, ShopAIKeyProvider],
     },
     AIService,
   ],

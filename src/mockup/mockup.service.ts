@@ -16,8 +16,11 @@ export class MockupService {
     prompts: string[],
     signal?: AbortSignal,
     provider?: string,
+    imageModel?: string,
   ) {
     this.aiService.validateSelection(provider, ['image']);
+    if (imageModel !== undefined)
+      await this.aiService.validateImageModel(provider, imageModel);
     const base64Image = file.buffer.toString('base64');
 
     const handlePrompt = async (prompt: string, index: number) => {
@@ -28,6 +31,7 @@ export class MockupService {
               base64Image,
               mimeType: file.mimetype,
               prompt,
+              ...(imageModel !== undefined ? { imageModel } : {}),
             },
             provider,
           ),

@@ -1,143 +1,87 @@
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { VyceAIProvider } from './vyceai.provider';
 
 jest.mock('openai', () => ({ __esModule: true, default: jest.fn() }));
+const answer = (content: string, finish_reason = 'stop') => ({
+  choices: [{ finish_reason, message: { content } }],
+});
 
-describe('VyceAIProvider', () => {
+describe('Internal VyceAI text routing', () => {
+  const list = jest.fn();
   const create = jest.fn();
   beforeEach(() => {
     jest.clearAllMocks();
-    jest
-      .mocked(OpenAI)
-      .mockImplementation(
-        () => ({ chat: { completions: { create } } }) as unknown as OpenAI,
-      );
-    create.mockResolvedValue({
-      choices: [{ message: { content: '["Studio"]' } }],
-    });
-  });
-
-  it('uses the VyceAI endpoint and selected model with the existing SDK', async () => {
-    const provider = new VyceAIProvider(
-      new ConfigService({
-        VYCEAI_API_KEY: 'test-key',
-        VYCEAI_MODEL_TEXT: 'deepseek-v4.1',
-      }),
+    jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => {});
+    jest.mocked(OpenAI).mockImplementation(
+      () =>
+        ({
+          models: { list },
+          chat: { completions: { create } },
+        }) as unknown as OpenAI,
     );
-    expect(OpenAI).not.toHaveBeenCalled();
-    expect(await provider.generateJSON('Generate prompts')).toEqual(['Studio']);
-    expect(OpenAI).toHaveBeenCalledWith({
-      apiKey: 'test-key',
-      baseURL: 'https://vyceai.com/v1',
-      timeout: 60000,
-      maxRetries: 0,
-    });
-    expect(create).toHaveBeenCalledWith({
-      model: 'deepseek-v4.1',
-      messages: [
-        expect.objectContaining({ role: 'system' }),
-        { role: 'user', content: 'Generate prompts' },
+    list.mockResolvedValue({
+      data: [
+        { id: 'deepseek-v4.1' },
+        { id: 'claude-sonnet-4-6' },
+        { id: 'gpt-6-luna' },
+        { id: 'gpt-image-1' },
       ],
     });
   });
-
-  it('allows custom endpoint and timeout and reuses the client', async () => {
-    const provider = new VyceAIProvider(
+  afterEach(() => jest.restoreAllMocks());
+  const provider = () =>
+    new VyceAIProvider(
       new ConfigService({
         VYCEAI_API_KEY: 'test-key',
-        VYCEAI_MODEL_TEXT: 'custom-model',
-        VYCEAI_BASE_URL: 'https://gateway.example/v1',
-        VYCEAI_TIMEOUT_MS: 30000,
+        VYCEAI_HEALTH_TIMEOUT_MS: 2000,
       }),
     );
-    await provider.generateJSON('First');
-    await provider.generateJSON('Second');
-    expect(OpenAI).toHaveBeenCalledTimes(1);
-    expect(OpenAI).toHaveBeenCalledWith(
+  it('discovers GPT before Claude, skips unhealthy GPT, and probes again before the next prompt', async () => {
+    const vyceai = provider();
+    create
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(answer('OK'))
+      .mockResolvedValueOnce(answer('["first"]'));
+    expect(await vyceai.generateJSON('first prompt')).toEqual(['first']);
+    expect(
+      create.mock.calls.map((call) => (call as [{ model: string }])[0].model),
+    ).toEqual(['gpt-6-luna', 'claude-sonnet-4-6', 'claude-sonnet-4-6']);
+    expect((create.mock.calls as unknown[][])[0][1]).toEqual({ timeout: 2000 });
+    expect(
+      ((create.mock.calls as unknown[][])[1][0] as { messages: unknown[] })
+        .messages,
+    ).toEqual([{ role: 'user', content: 'Reply with only OK.' }]);
+    create
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(answer('OK'))
+      .mockResolvedValueOnce(answer('["second"]'));
+    expect(await vyceai.generateJSON('second prompt')).toEqual(['second']);
+    expect(list).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(6);
+    expect(jest.mocked(OpenAI)).toHaveBeenCalledWith(
       expect.objectContaining({
-        baseURL: 'https://gateway.example/v1',
-        timeout: 30000,
+        maxRetries: 0,
+        baseURL: 'https://vyceai.com/v1',
       }),
     );
   });
-
-  it('sends images only when vision is explicitly enabled and uses its separate model', async () => {
-    const provider = new VyceAIProvider(
-      new ConfigService({
-        VYCEAI_API_KEY: 'test-key',
-        VYCEAI_VISION_ENABLED: true,
-        VYCEAI_MODEL_VISION: 'vision-model',
-      }),
-    );
-    create.mockResolvedValue({
-      choices: [{ message: { content: '{"productType":"shirt"}' } }],
-    });
-    await provider.generateJSON('Analyze', {
-      base64: 'data:image/png;base64,aW1hZ2U=',
-      mimeType: 'image/png',
-    });
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        model: 'vision-model',
-        messages: [
-          expect.any(Object),
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: 'Analyze' },
-              {
-                type: 'image_url',
-                image_url: { url: 'data:image/png;base64,aW1hZ2U=' },
-              },
-            ],
-          },
-        ],
-      }),
-    );
-  });
-
-  it('rejects disabled vision, missing credentials and missing models before any request', async () => {
-    const provider = new VyceAIProvider(new ConfigService({}));
+  it('never sends the real prompt to models that fail health', async () => {
+    create.mockResolvedValue(answer('', 'length'));
     await expect(
-      provider.generateJSON('Analyze', {
-        base64: 'aW1hZ2U=',
-        mimeType: 'image/png',
-      }),
-    ).rejects.toThrow('does not support');
-    expect(() => provider.validateConfiguration('text')).toThrow(
-      'VYCEAI_API_KEY',
+      provider().generateJSON('private real prompt'),
+    ).rejects.toThrow('No healthy');
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(create.mock.calls)).not.toContain(
+      'private real prompt',
     );
-    const missingModel = new VyceAIProvider(
-      new ConfigService({ VYCEAI_API_KEY: 'test-key' }),
-    );
-    expect(() => missingModel.validateConfiguration('text')).toThrow(
-      'VYCEAI_MODEL_TEXT',
-    );
-    const missingVisionModel = new VyceAIProvider(
-      new ConfigService({
-        VYCEAI_API_KEY: 'test-key',
-        VYCEAI_VISION_ENABLED: true,
-      }),
-    );
-    expect(() => missingVisionModel.validateConfiguration('vision')).toThrow(
-      'VYCEAI_MODEL_VISION',
+  });
+  it('does not generate when model discovery fails', async () => {
+    list.mockRejectedValue(new Error('unavailable'));
+    await expect(provider().generateJSON('prompt')).rejects.toThrow(
+      'unavailable',
     );
     expect(create).not.toHaveBeenCalled();
-    expect(OpenAI).not.toHaveBeenCalled();
   });
-
-  it.each([null, 'invalid JSON', undefined])(
-    'rejects empty or malformed completion %j',
-    async (content) => {
-      const provider = new VyceAIProvider(
-        new ConfigService({
-          VYCEAI_API_KEY: 'test-key',
-          VYCEAI_MODEL_TEXT: 'model',
-        }),
-      );
-      create.mockResolvedValue({ choices: [{ message: { content } }] });
-      await expect(provider.generateJSON('Generate')).rejects.toThrow('JSON');
-    },
-  );
 });

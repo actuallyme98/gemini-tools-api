@@ -14,6 +14,7 @@ import { R2Service } from '../src/r2/r2.service';
 import { APP_FILTER } from '@nestjs/core';
 import { ApiExceptionFilter } from '../src/common/api-exception.filter';
 import { externalServiceError } from '../src/common/external-service-error';
+import { TextRouterService } from '../src/ai/text-router.service';
 
 const png = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
 const analysis = {
@@ -36,6 +37,20 @@ const analysis = {
   },
 };
 const adapter = (id: string, capabilities: AIProvider['capabilities']) => ({
+  ...(id === 'shopaikey'
+    ? {
+        getImageModels: jest.fn(() =>
+          Promise.resolve({
+            provider: id,
+            defaultModel: 'gemini-3.1-flash-image-preview',
+            models: [
+              { id: 'gemini-3.1-flash-image-preview', name: 'Flash Image' },
+              { id: 'gemini-3-pro-image-preview', name: 'Pro Image' },
+            ],
+          }),
+        ),
+      }
+    : {}),
   id,
   name: id,
   capabilities,
@@ -55,12 +70,20 @@ const adapter = (id: string, capabilities: AIProvider['capabilities']) => ({
 describe('Client-selected provider routing', () => {
   let app: INestApplication;
   const gemini = adapter('gemini', ['text', 'vision', 'image']);
-  const vyceai = adapter('vyceai', ['text']);
+  const textOnly = adapter('text-only', ['text']);
   const shopaikey = adapter('shopaikey', ['text', 'vision', 'image']);
   const offline = adapter('offline', ['text']);
   const upload = jest.fn(() =>
     Promise.resolve('https://cdn.example/result.png'),
   );
+  const config = new ConfigService({ AI_AUTO_TEXT_ROUTING: false });
+  const textRouter = {
+    id: 'auto-text',
+    name: 'VyceAI → ShopAIKey',
+    capabilities: ['text'],
+    validateConfiguration: jest.fn(),
+    generateJSON: jest.fn(),
+  };
   beforeAll(async () => {
     offline.validateConfiguration.mockImplementation(() => {
       throw new Error('secret API key');
@@ -70,9 +93,11 @@ describe('Client-selected provider routing', () => {
       providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
     })
       .overrideProvider(ConfigService)
-      .useValue(new ConfigService({}))
+      .useValue(config)
+      .overrideProvider(TextRouterService)
+      .useValue(textRouter)
       .overrideProvider(AI_PROVIDERS)
-      .useValue([gemini, vyceai, shopaikey, offline])
+      .useValue([gemini, textOnly, shopaikey, offline])
       .overrideProvider(R2Service)
       .useValue({ upload })
       .compile();
@@ -134,6 +159,112 @@ describe('Client-selected provider routing', () => {
     expect(gemini.generateJSON).not.toHaveBeenCalled();
     expect(upload).not.toHaveBeenCalled();
   });
+  it('returns image model metadata and rejects unknown providers without generation', async () => {
+    const response = await request(
+      app.getHttpServer() as Parameters<typeof request>[0],
+    )
+      .get('/api/ai/providers/shopaikey/image-models?refresh=true')
+      .expect(200);
+    expect(response.body).toMatchObject({
+      provider: 'shopaikey',
+      defaultModel: 'gemini-3.1-flash-image-preview',
+      models: expect.any(Array) as unknown,
+    });
+    expect(shopaikey.getImageModels).toHaveBeenCalledWith(true);
+    await request(app.getHttpServer() as Parameters<typeof request>[0])
+      .get('/api/ai/providers/unknown/image-models')
+      .expect(400);
+    expect(shopaikey.editImage).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+  });
+  it.each([
+    ['mockups/generate-mockups', { prompts: '["edit"]' }, 'editImage'],
+    ['ideas/generate-ideas', { basePrompt: 'studio', count: '1' }, 'editImage'],
+    [
+      'ideas/generate-images-from-referal-images',
+      { variations: '2' },
+      'generateImagesFromReferalImages',
+    ],
+    ['backgrounds/replace', {}, 'replaceBackground'],
+  ] as [
+    string,
+    Record<string, string>,
+    'editImage' | 'generateImagesFromReferalImages' | 'replaceBackground',
+  ][])(
+    'routes the selected image model for %s and rejects bad selections before paid work',
+    async (endpoint, fields, method) => {
+      const model = 'gemini-3-pro-image-preview';
+      for (const imageModel of [
+        'gemini-text-only',
+        'https://untrusted.example',
+        '',
+        'a'.repeat(129),
+      ])
+        await post(endpoint, { ...fields, imageModel }, 'shopaikey').expect(
+          400,
+        );
+      expect(shopaikey.generateJSON).not.toHaveBeenCalled();
+      expect(shopaikey[method]).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      await post(endpoint, { ...fields, imageModel: model }, 'gemini').expect(
+        400,
+      );
+      if (endpoint === 'ideas/generate-ideas')
+        shopaikey.generateJSON.mockResolvedValueOnce([
+          { title: 'studio', description: '', prompt: 'edit' },
+        ]);
+      await post(
+        endpoint,
+        { ...fields, imageModel: model },
+        'shopaikey',
+      ).expect(201);
+      expect(shopaikey[method]).toHaveBeenCalledWith(
+        expect.objectContaining({ imageModel: model }),
+      );
+      for (const call of shopaikey[method].mock.calls)
+        expect(call[0]).toMatchObject({ imageModel: model });
+      expect(gemini.editImage).not.toHaveBeenCalled();
+    },
+  );
+  it('uses automatic text routing while keeping image processing on the selected ShopAIKey model', async () => {
+    config.set('AI_AUTO_TEXT_ROUTING', true);
+    try {
+      textRouter.generateJSON.mockResolvedValueOnce([
+        { title: 'studio', description: '', prompt: 'edit' },
+      ]);
+      await post(
+        'ideas/generate-ideas',
+        {
+          count: '1',
+          basePrompt: 'studio',
+          imageModel: 'gemini-3-pro-image-preview',
+        },
+        'shopaikey',
+      ).expect(201);
+      expect(textRouter.generateJSON).toHaveBeenCalledTimes(1);
+      expect(shopaikey.generateJSON).not.toHaveBeenCalled();
+      expect(shopaikey.editImage).toHaveBeenCalledWith(
+        expect.objectContaining({ imageModel: 'gemini-3-pro-image-preview' }),
+      );
+      const response = await request(
+        app.getHttpServer() as Parameters<typeof request>[0],
+      )
+        .get('/api/ai/providers')
+        .expect(200);
+      expect(response.body).toMatchObject({
+        textRouting: {
+          primary: 'vyceai',
+          fallback: 'shopaikey',
+          healthRequired: true,
+        },
+      });
+      expect(
+        (response.body as AIProviderCatalog).providers.map((p) => p.id),
+      ).not.toContain('vyceai');
+    } finally {
+      config.set('AI_AUTO_TEXT_ROUTING', false);
+    }
+  });
   it.each([
     ['mockups/generate-prompts', { count: '1' }],
     ['ideas/analyze-product', {}],
@@ -144,9 +275,9 @@ describe('Client-selected provider routing', () => {
   ] as [string, Record<string, string>][])(
     'rejects unsupported selections before any AI step on %s',
     async (endpoint, fields) => {
-      await post(endpoint, fields, 'vyceai').expect(400);
+      await post(endpoint, fields, 'text-only').expect(400);
       expect(gemini.generateJSON).not.toHaveBeenCalled();
-      expect(vyceai.generateJSON).not.toHaveBeenCalled();
+      expect(textOnly.generateJSON).not.toHaveBeenCalled();
       expect(gemini.editImage).not.toHaveBeenCalled();
       expect(shopaikey.editImage).not.toHaveBeenCalled();
       expect(upload).not.toHaveBeenCalled();
@@ -197,6 +328,7 @@ describe('Client-selected provider routing', () => {
     async (endpoint, fields) => {
       for (const selected of [
         'unknown',
+        'vyceai',
         'offline',
         '',
         'https://untrusted.example',

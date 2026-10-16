@@ -43,12 +43,12 @@ describe('AIService provider routing', () => {
     backgroundImage: { base64: 'c2NlbmU=', mimeType: 'image/png' },
     variationIndex: 1,
   };
-  it('rejects a provider missing background replacement without falling back', () => {
+  it('rejects a provider missing background replacement without falling back', async () => {
     const legacy = provider('legacy', ['text', 'vision', 'image']);
     const service = new AIService(new ConfigService({}), [gemini, legacy]);
-    expect(() => service.replaceBackground(backgroundParams, 'legacy')).toThrow(
-      'chưa hỗ trợ',
-    );
+    await expect(
+      service.replaceBackground(backgroundParams, 'legacy'),
+    ).rejects.toThrow('chưa hỗ trợ');
     expect(legacy.editImage).not.toHaveBeenCalled();
     expect(gemini.editImage).not.toHaveBeenCalled();
   });
@@ -69,36 +69,36 @@ describe('AIService provider routing', () => {
     });
   });
   let gemini: ReturnType<typeof provider>;
-  let vyceai: ReturnType<typeof provider>;
+  let textOnly: ReturnType<typeof provider>;
   beforeEach(() => {
     gemini = provider('gemini', ['text', 'vision', 'image']);
-    vyceai = provider('vyceai', ['text']);
+    textOnly = provider('text-only', ['text']);
   });
 
   it('keeps Gemini as default for all tasks', () => {
-    const service = new AIService(new ConfigService({}), [gemini, vyceai]);
+    const service = new AIService(new ConfigService({}), [gemini, textOnly]);
     service.onModuleInit();
     expect(gemini.validateConfiguration).toHaveBeenCalledTimes(3);
-    expect(vyceai.validateConfiguration).not.toHaveBeenCalled();
+    expect(textOnly.validateConfiguration).not.toHaveBeenCalled();
   });
 
   it('keeps concurrent request overrides independent from system defaults', async () => {
     const custom = provider('custom', ['text', 'vision', 'image']);
     const service = new AIService(new ConfigService({}), [
       gemini,
-      vyceai,
+      textOnly,
       custom,
     ]);
     gemini.generateJSON.mockResolvedValue(['default prompt']);
-    vyceai.generateJSON.mockResolvedValue(['vyce prompt']);
+    textOnly.generateJSON.mockResolvedValue(['text-only prompt']);
     custom.generateJSON.mockResolvedValue(['custom prompt']);
     expect(
       await Promise.all([
-        service.generateMockupPrompts(analysis, 1, 'vyceai'),
+        service.generateMockupPrompts(analysis, 1, 'text-only'),
         service.generateMockupPrompts(analysis, 1, 'custom'),
         service.generateMockupPrompts(analysis, 1),
       ]),
-    ).toEqual([['vyce prompt'], ['custom prompt'], ['default prompt']]);
+    ).toEqual([['text-only prompt'], ['custom prompt'], ['default prompt']]);
     await service.editImage(
       { base64Image: '', mimeType: 'image/png', prompt: 'edit' },
       'custom',
@@ -112,7 +112,7 @@ describe('AIService provider routing', () => {
     });
   });
 
-  it('reports unsupported capabilities and unavailable providers without leaking configuration errors', () => {
+  it('reports unsupported capabilities and unavailable providers without leaking configuration errors', async () => {
     const custom = provider('custom', ['text', 'vision', 'image']);
     custom.validateConfiguration.mockImplementation((capability?: unknown) => {
       if (capability === 'image')
@@ -124,17 +124,17 @@ describe('AIService provider routing', () => {
     });
     const configured = new AIService(new ConfigService({}), [
       gemini,
-      vyceai,
+      textOnly,
       custom,
       offline,
     ]);
     const catalog = configured.getProviders();
     expect(catalog.providers).toContainEqual({
-      id: 'vyceai',
-      name: 'vyceai',
+      id: 'text-only',
+      name: 'text-only',
       available: true,
       capabilities: ['text'],
-      routing: { text: 'vyceai', vision: null, image: null },
+      routing: { text: 'text-only', vision: null, image: null },
     });
     expect(
       catalog.providers.find((entry) => entry.id === 'custom'),
@@ -143,42 +143,42 @@ describe('AIService provider routing', () => {
       routing: { image: null },
     });
     expect(JSON.stringify(catalog)).not.toContain('private');
-    expect(() =>
+    await expect(
       configured.editImage(
         { base64Image: '', mimeType: 'image/png', prompt: 'edit' },
-        'vyceai',
+        'text-only',
       ),
-    ).toThrow('chưa hỗ trợ');
-    expect(() => configured.generateImage('image', 'custom')).toThrow(
+    ).rejects.toThrow('chưa hỗ trợ');
+    await expect(configured.generateImage('image', 'custom')).rejects.toThrow(
       'chưa hỗ trợ',
     );
     expect(gemini.editImage).not.toHaveBeenCalled();
     expect(gemini.generateImage).not.toHaveBeenCalled();
-    expect(() => configured.generateImage('image', 'offline')).toThrow(
+    await expect(configured.generateImage('image', 'offline')).rejects.toThrow(
       'chưa được cấu hình',
     );
-    expect(() => configured.generateImage('image', 'unknown')).toThrow(
+    await expect(configured.generateImage('image', 'unknown')).rejects.toThrow(
       'không hợp lệ',
     );
   });
 
   it('propagates selected provider execution errors without spending on a fallback', async () => {
-    const service = new AIService(new ConfigService({}), [gemini, vyceai]);
-    vyceai.generateJSON.mockRejectedValue(new Error('Upstream unavailable'));
+    const service = new AIService(new ConfigService({}), [gemini, textOnly]);
+    textOnly.generateJSON.mockRejectedValue(new Error('Upstream unavailable'));
     await expect(
-      service.generateMockupPrompts(analysis, 1, 'vyceai'),
+      service.generateMockupPrompts(analysis, 1, 'text-only'),
     ).rejects.toThrow('xử lý tác vụ thất bại');
     expect(gemini.generateJSON).not.toHaveBeenCalled();
   });
 
-  it('routes text to VyceAI and product analysis and image editing to Gemini', async () => {
+  it('routes text to text-only provider and product analysis and image editing to Gemini', async () => {
     const service = new AIService(
-      new ConfigService({ AI_TEXT_PROVIDER: 'vyceai' }),
-      [gemini, vyceai],
+      new ConfigService({ AI_TEXT_PROVIDER: 'text-only' }),
+      [gemini, textOnly],
     );
     service.onModuleInit();
     jest.mocked(gemini.generateJSON).mockResolvedValue(analysis);
-    jest.mocked(vyceai.generateJSON).mockResolvedValue(['Studio background']);
+    jest.mocked(textOnly.generateJSON).mockResolvedValue(['Studio background']);
     const file = {
       buffer: Buffer.from('product'),
       mimetype: 'image/png',
@@ -191,7 +191,7 @@ describe('AIService provider routing', () => {
     expect(await service.generateMockupPrompts(analysis, 1)).toEqual([
       'Studio background',
     ]);
-    expect(vyceai.generateJSON).toHaveBeenCalledWith(
+    expect(textOnly.generateJSON).toHaveBeenCalledWith(
       expect.stringContaining('Generate exactly 1'),
     );
     const params = {
@@ -201,7 +201,7 @@ describe('AIService provider routing', () => {
     };
     await service.editImage(params);
     expect(gemini.editImage).toHaveBeenCalledWith(params);
-    expect(vyceai.editImage).not.toHaveBeenCalled();
+    expect(textOnly.editImage).not.toHaveBeenCalled();
     await service.generateImage('Studio photo');
     expect(gemini.generateImage).toHaveBeenCalledWith('Studio photo');
     const references = {
@@ -237,13 +237,13 @@ describe('AIService provider routing', () => {
   });
 
   it.each(['image', 'vision'])(
-    'rejects unsupported VyceAI %s at startup',
+    'rejects unsupported text-only provider %s at startup',
     (capability) => {
       const service = new AIService(
         new ConfigService({
-          [`AI_${capability.toUpperCase()}_PROVIDER`]: 'vyceai',
+          [`AI_${capability.toUpperCase()}_PROVIDER`]: 'text-only',
         }),
-        [gemini, vyceai],
+        [gemini, textOnly],
       );
       expect(() => service.onModuleInit()).toThrow(
         `does not support ${capability}`,
@@ -264,15 +264,15 @@ describe('AIService provider routing', () => {
 
   it('propagates configuration and upstream errors without silently falling back', async () => {
     const service = new AIService(
-      new ConfigService({ AI_TEXT_PROVIDER: 'vyceai' }),
-      [gemini, vyceai],
+      new ConfigService({ AI_TEXT_PROVIDER: 'text-only' }),
+      [gemini, textOnly],
     );
-    jest.mocked(vyceai.validateConfiguration).mockImplementation(() => {
+    jest.mocked(textOnly.validateConfiguration).mockImplementation(() => {
       throw new Error('Missing key');
     });
     expect(() => service.onModuleInit()).toThrow('Missing key');
     jest
-      .mocked(vyceai.generateJSON)
+      .mocked(textOnly.generateJSON)
       .mockRejectedValue(new Error('Upstream unavailable'));
     await expect(service.generateMockupPrompts(analysis, 1)).rejects.toThrow(
       'xử lý tác vụ thất bại',

@@ -9,48 +9,35 @@
 | `AI_VISION_PROVIDER` | Phân tích ảnh sản phẩm           | Giá trị `AI_PROVIDER` |
 | `AI_IMAGE_PROVIDER`  | Sinh/chỉnh ảnh, ảnh từ reference | Giá trị `AI_PROVIDER` |
 
-Provider của từng tác vụ được ưu tiên hơn provider chung. Hiện có `gemini`, `vyceai` và `shopaikey`. Không có fallback tự động: lỗi từ provider đã chọn được xử lý bởi retry hiện tại của service nghiệp vụ, không tự chuyển dữ liệu sang nhà cung cấp khác.
+Provider của từng tác vụ được ưu tiên hơn provider chung. Provider ảnh/vision gồm `gemini` và `shopaikey`. Ảnh/vision không có fallback tự động: lỗi từ provider đã chọn được xử lý bởi retry hiện tại của service nghiệp vụ, không tự chuyển ảnh sang nhà cung cấp khác.
 
-## Gemini + VyceAI
+Quy tắc trên áp dụng cho ảnh/vision. Với `AI_AUTO_TEXT_ROUTING=true` (mặc định), text có định tuyến riêng: ưu tiên VyceAI, fallback ShopAIKey như mô tả dưới đây. Đặt `false` để dùng lại lựa chọn provider text thông thường.
 
-Copy `.env.example` thành `.env`, điền credential và chọn image model đang hoạt động. Ví dụ dùng VyceAI cho text, Gemini cho ảnh:
+## Text: VyceAI ưu tiên, ShopAIKey dự phòng
 
-```dotenv
-AI_PROVIDER=gemini
-AI_TEXT_PROVIDER=vyceai
-AI_VISION_PROVIDER=gemini
-AI_IMAGE_PROVIDER=gemini
+VyceAI là adapter nội bộ cho text, không xuất hiện trong dropdown provider ảnh và không nhận ảnh sản phẩm. `AI_AUTO_TEXT_ROUTING=true` áp dụng cho sinh prompt mockup và sinh ý tưởng, kể cả khi client chọn Gemini để xử lý ảnh.
 
-GEMINI_API_KEY=your-gemini-key
-VYCEAI_API_KEY=your-vyceai-key
-VYCEAI_BASE_URL=https://vyceai.com/v1
-VYCEAI_MODEL_TEXT=deepseek-v4.1
-VYCEAI_TIMEOUT_MS=60000
-```
+Backend lấy model từ `VYCEAI_BASE_URL/models` bằng `VYCEAI_API_KEY`, ưu tiên ID GPT rồi Claude. Danh sách được cache 60 giây, tối đa hai model mỗi nhóm được thử để tránh kéo dài vô hạn. Không dùng DeepSeek/Grok hay model chỉ tạo ảnh trong luồng text này.
 
-Model ID trên là ví dụ theo danh sách dashboard được cung cấp. Dùng đúng ID và quyền truy cập của tài khoản VyceAI; ứng dụng không xác minh model tồn tại khi khởi động. Restart server sau khi đổi cấu hình.
+Trước mỗi prompt thật, model phải vượt qua một yêu cầu health ngắn. Kết quả health không cache giữa các yêu cầu. Probe timeout theo `VYCEAI_HEALTH_TIMEOUT_MS` (mặc định 10 giây); model không phản hồi đầy đủ sẽ bị bỏ qua. Nếu khám phá model, health hoặc lần sinh text thật thất bại, backend chuyển sang `SHOPAIKEY_MODEL_TEXT`. Health probe có thể tiêu thụ token của provider.
 
-Gemini vẫn là mặc định khi không đặt biến chọn provider. Các biến `GEMINI_MODEL_TEXT`, `GEMINI_MODEL_MULTIMODAL`, `GEMINI_MODEL_IMAGE` vẫn được sử dụng. Giá trị mặc định image model cũ được giữ để tránh thay đổi cấu hình triển khai; hãy đặt `GEMINI_MODEL_IMAGE` thành model đang hoạt động trong tài khoản của bạn.
+ShopAIKey dự phòng dùng key riêng `SHOPAIKEY_API_KEY`, không dùng key Gemini. Nếu cả hai dịch vụ không sử dụng được, API trả lỗi theo hợp đồng chung và ghi provider dự phòng gây lỗi. `GET /api/ai/providers` trả `textRouting` để client hiển thị quy tắc này; provider ảnh và model ảnh vẫn được giữ đúng lựa chọn của client.
 
-`GEMINI_API_KEY` / `VYCEAI_API_KEY` / `SHOPAIKEY_API_KEY` chỉ bắt buộc nếu provider đó được chọn. `OPENAI_API_KEY` không còn bắt buộc: module OpenAI cũ chưa có chức năng nghiệp vụ và không được nạp vào luồng này. Các cấu hình R2 và Redis hiện có vẫn cần thiết theo schema môi trường.
+## Chọn model ảnh trên client
 
-## Khả năng của VyceAI
+`GET /api/ai/providers/shopaikey/image-models` lấy danh sách thực tế từ `https://api.shopaikey.com/v1beta/models` bằng credential backend. Chỉ trả ID/tên các model Gemini tạo/chỉnh ảnh tương thích với native GenAI adapter; các model GPT/Grok hoặc alias dùng endpoint khác không xuất hiện. Key không được gửi xuống client.
 
-Adapter dùng OpenAI SDK hiện có với `baseURL`, gọi `POST /chat/completions`, nhận `choices[0].message.content`. Prompt yêu cầu JSON, parser xử lý cả JSON được bọc trong markdown code fence. Không ép `response_format` vì chưa xác nhận mọi model của gateway hỗ trợ JSON mode. Service chung kiểm tra cấu trúc kết quả trước khi dùng; JSON lỗi, danh sách prompt sai số lượng hoặc ý tưởng thiếu prompt sẽ báo lỗi.
+Kết quả `{ provider, defaultModel, models: [{ id, name }] }` được cache 5 phút, chia sẻ request đang tải. `?refresh=true` lấy lại danh sách. Model mặc định lấy từ `SHOPAIKEY_MODEL_IMAGE` nếu vẫn nằm trong danh sách. Catalog lỗi không ghi đè cache thành công.
 
-SDK đặt `maxRetries: 0` vì các service nghiệp vụ đã dùng `withRetry`. Endpoint phân tích sản phẩm vẫn giữ hành vi hiện tại: không bọc retry riêng. Timeout mỗi lần gọi mặc định 60 giây, chỉnh bằng `VYCEAI_TIMEOUT_MS` (1–300 giây).
+Các endpoint tạo mockup, tạo ý tưởng, tạo ảnh reference và thay background nhận thêm trường multipart `imageModel`. API kiểm tra lựa chọn trước các bước sinh text/ảnh trả phí và chỉ chấp nhận model tương thích trong catalog của provider. Model không hợp lệ trả `AI_IMAGE_MODEL_INVALID`; provider không hỗ trợ lựa chọn model trả `AI_IMAGE_MODEL_UNSUPPORTED`. Bỏ qua trường này vẫn dùng model ảnh cấu hình ở backend.
 
-VyceAI mặc định chỉ hỗ trợ text trong adapter. Nếu đã xác minh model và gateway nhận ảnh, bật:
+Client lưu model ShopAIKey riêng trên trình duyệt; đổi sang Gemini không gửi model ShopAIKey. Lỗi tải catalog hoặc model đã lưu bị gỡ không tự đổi sang model khác; cần tải lại hoặc chọn model hợp lệ. Một batch giữ provider/model lúc bắt đầu; retry dùng lựa chọn hiện tại. Phân tích ảnh và text không dùng model ảnh đã chọn.
 
-```dotenv
-AI_VISION_PROVIDER=vyceai
-VYCEAI_VISION_ENABLED=true
-VYCEAI_MODEL_VISION=claude-sonnet-4-6
-```
+## Gemini
 
-Ảnh được gửi dưới dạng `image_url` với data URL base64. Khả năng nhận ảnh không đồng nghĩa khả năng sinh ảnh. Adapter chưa hỗ trợ sinh/chỉnh ảnh: đặt `AI_IMAGE_PROVIDER=vyceai` sẽ khiến ứng dụng báo lỗi khi khởi động. Nếu đặt `AI_PROVIDER=vyceai`, phải override image sang Gemini và bật/cấu hình vision hoặc override vision sang Gemini.
+Gemini là provider mặc định. Cấu hình GEMINI_API_KEY và các model GEMINI_MODEL_TEXT, GEMINI_MODEL_MULTIMODAL, GEMINI_MODEL_IMAGE trong .env; dùng model được cấp cho tài khoản.
 
-Kết quả kiểm tra gateway thực tế được ghi ở [báo cáo VyceAI](vyceai-smoke-test.md). Vision chỉ nên bật sau khi kiểm tra model đọc đúng ảnh; HTTP 200 và JSON hợp lệ chưa đủ để xác nhận chất lượng vision.
+Credential chỉ bắt buộc cho provider được chọn. ShopAIKey có thể được bật cùng Gemini bằng SHOPAIKEY_API_KEY và SHOPAIKEY_MODEL_IMAGE mà không đổi AI_PROVIDER. Dropdown lấy khả năng từ API; provider chưa có key/model cần thiết vẫn báo chưa cấu hình.
 
 ## ShopAIKey (native Google GenAI)
 
@@ -81,7 +68,7 @@ Tác vụ ảnh dùng Direct endpoint mặc định theo khuyến nghị của n
 Có thể kết hợp các provider:
 
 ```dotenv
-AI_TEXT_PROVIDER=vyceai
+AI_TEXT_PROVIDER=gemini
 AI_VISION_PROVIDER=shopaikey
 AI_IMAGE_PROVIDER=shopaikey
 ```
@@ -110,7 +97,7 @@ Unit tests dùng mock provider và mock SDK, không gửi ảnh hay gọi API tr
 
 GET /api/ai/providers lists registered providers, configured capabilities, availability and effective routing for text, vision and image tasks. No credentials or configuration errors are returned.
 
-All five multipart image endpoints accept an optional provider field (e.g. gemini, vyceai, shopaikey). Omit it to keep AI_PROVIDER and per-capability environment defaults. Selection applies only to that request and all its steps/variations; it never changes global configuration.
+All multipart image endpoints accept an optional provider field (e.g. gemini, shopaikey). Omit it to keep AI_PROVIDER and per-capability environment defaults. Selection applies only to that request and all its steps/variations; it never changes global configuration.
 
 A selected provider handles its configured capabilities. Every AI step uses the explicitly selected provider. Unsupported or unconfigured capabilities return HTTP 400; the sidebar marks them as unavailable with null routing. No request-time fallback occurs. Multi-step and batch endpoints validate all required capabilities before any paid AI generation. Unknown IDs or providers with no configured capabilities also return HTTP 400. Startup still validates all system defaults strictly.
 

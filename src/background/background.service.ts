@@ -16,9 +16,12 @@ export class BackgroundService {
     instructions?: string;
     variationIndex: number;
     provider?: string;
+    imageModel?: string;
     signal?: AbortSignal;
   }) {
     this.ai.validateSelection(params.provider, ['image']);
+    if (params.imageModel !== undefined)
+      await this.ai.validateImageModel(params.provider, params.imageModel);
     const image = await withRetry(
       () =>
         this.ai.replaceBackground(
@@ -33,6 +36,9 @@ export class BackgroundService {
             },
             instructions: params.instructions,
             variationIndex: params.variationIndex,
+            ...(params.imageModel !== undefined
+              ? { imageModel: params.imageModel }
+              : {}),
           },
           params.provider,
         ),

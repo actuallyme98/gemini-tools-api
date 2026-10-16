@@ -15,6 +15,8 @@ Các endpoint POST nhận multipart/form-data:
 
 [Background Studio](background-studio.md) tạo nhiều background bằng hàng đợi từng cặp ảnh và giữ kết quả thành công khi thử lại.
 
+Các endpoint tạo/chỉnh ảnh nhận thêm `imageModel` (ID tối đa 128 ký tự từ `GET /api/ai/providers/shopaikey/image-models`); bỏ qua dùng model cấu hình. Model được kiểm tra trước bước trả phí, giữ cố định cho cả batch. `GET /api/ai/providers` có `textRouting` khi bật text VyceAI ưu tiên / ShopAIKey dự phòng. Xem [cấu hình AI](ai-providers.md).
+
 Mỗi ảnh tối đa 10MB, PNG/JPEG/WebP. API kiểm tra MIME và chữ ký file; request không hợp lệ trả 400, file quá lớn trả 413 trước khi gọi AI. Prompt thủ công tối đa 4000 ký tự/prompt; basePrompt tối đa 20000 ký tự.
 
 variations được thực thi tại IdeaService: mỗi lượt tạo một ảnh và upload R2, tổng số URL đúng số yêu cầu. Retry theo từng lượt, không tạo lại các ảnh trước đó trong cùng request. Ý tưởng yêu cầu AI trả đúng count; response sai cấu trúc/số lượng bị từ chối. Các lời gọi có lỗi xác thực/đầu vào 4xx không retry (trừ 408/429).

@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiOperation, ApiTags } from '@nestjs/swagger';
 import { AIService } from './ai.service';
 
@@ -14,5 +14,17 @@ export class AIController {
   })
   getProviders() {
     return this.aiService.getProviders();
+  }
+
+  @Get('providers/:provider/image-models')
+  @ApiOperation({
+    summary:
+      'List compatible image models from the selected provider. refresh=true bypasses the catalog cache.',
+  })
+  getImageModels(
+    @Param('provider') provider: string,
+    @Query('refresh') refresh?: string,
+  ) {
+    return this.aiService.getImageModels(provider, refresh === 'true');
   }
 }

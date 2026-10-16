@@ -1,6 +1,7 @@
 import {
   ProviderSelectionDto,
   providerSelectionSchema,
+  imageModelSelectionSchema,
 } from '../ai/provider-selection.dto';
 import type { Response } from 'express';
 import { requestSignal } from '../common/request-signal';
@@ -60,6 +61,7 @@ export class IdeaController {
     schema: {
       type: 'object',
       properties: {
+        imageModel: imageModelSelectionSchema,
         provider: providerSelectionSchema,
         image: {
           type: 'string',
@@ -85,6 +87,7 @@ export class IdeaController {
       body.count,
       requestSignal(response),
       body.provider,
+      body.imageModel,
     );
   }
 
@@ -103,6 +106,7 @@ export class IdeaController {
     schema: {
       type: 'object',
       properties: {
+        imageModel: imageModelSelectionSchema,
         provider: providerSelectionSchema,
         productImage: {
           type: 'string',
@@ -144,6 +148,7 @@ export class IdeaController {
       variations: body.variations,
       signal: requestSignal(response),
       provider: body.provider,
+      imageModel: body.imageModel,
     });
   }
 }

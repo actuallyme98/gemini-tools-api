@@ -1,4 +1,7 @@
-import { providerSelectionSchema } from '../ai/provider-selection.dto';
+import {
+  providerSelectionSchema,
+  imageModelSelectionSchema,
+} from '../ai/provider-selection.dto';
 import type { Response } from 'express';
 import { requestSignal } from '../common/request-signal';
 import { multerConfig, requireImage } from '../common/multer.config';
@@ -61,6 +64,7 @@ export class MockupController {
     schema: {
       type: 'object',
       properties: {
+        imageModel: imageModelSelectionSchema,
         provider: providerSelectionSchema,
         image: {
           type: 'string',
@@ -84,6 +88,7 @@ export class MockupController {
       dto.prompts,
       requestSignal(response),
       dto.provider,
+      dto.imageModel,
     );
   }
 }

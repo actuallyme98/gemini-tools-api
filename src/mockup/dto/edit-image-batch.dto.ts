@@ -1,4 +1,4 @@
-import { ProviderSelectionDto } from '../../ai/provider-selection.dto';
+import { ImageProviderSelectionDto } from '../../ai/provider-selection.dto';
 import { ApiProperty } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
@@ -9,7 +9,7 @@ import {
   MinLength,
   MaxLength,
 } from 'class-validator';
-export class EditImageBatchDto extends ProviderSelectionDto {
+export class EditImageBatchDto extends ImageProviderSelectionDto {
   @ApiProperty({
     description: 'JSON array of 1–20 non-empty prompts',
     example: '["Add a studio background"]',

@@ -2,7 +2,6 @@ import { ConfigModule } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { AIModule } from './ai.module';
 import { AIService } from './ai.service';
-import { VyceAIProvider } from './providers/vyceai.provider';
 import { ShopAIKeyProvider } from './providers/shopaikey.provider';
 import { GeminiService } from '../gemini/gemini.service';
 import { MockupModule } from '../mockup/mockup.module';
@@ -12,7 +11,7 @@ import { IdeaService } from '../idea/idea.service';
 import { R2Service } from '../r2/r2.service';
 
 describe('AI module integration', () => {
-  it('registers ShopAIKey for all tasks without requiring Gemini or VyceAI credentials', async () => {
+  it('registers ShopAIKey for all tasks without requiring Gemini credentials', async () => {
     const shopaikey = {
       id: 'shopaikey',
       capabilities: ['text', 'vision', 'image'],
@@ -30,7 +29,9 @@ describe('AI module integration', () => {
           isGlobal: true,
           ignoreEnvFile: true,
           skipProcessEnv: true,
-          load: [() => ({ AI_PROVIDER: 'shopaikey' })],
+          load: [
+            () => ({ AI_PROVIDER: 'shopaikey', AI_AUTO_TEXT_ROUTING: false }),
+          ],
         }),
         AIModule,
       ],
@@ -45,6 +46,10 @@ describe('AI module integration', () => {
         ['text'],
         ['vision'],
         ['image'],
+      ]);
+      expect(ai.getProviders().providers.map((entry) => entry.id)).toEqual([
+        'gemini',
+        'shopaikey',
       ]);
       expect(await ai.generateImage('Product')).toEqual(
         Buffer.from('generated'),
@@ -78,8 +83,8 @@ describe('AI module integration', () => {
       editImage: jest.fn().mockResolvedValue(image),
       generateImagesFromReferalImages: jest.fn().mockResolvedValue([image]),
     };
-    const vyceai = {
-      id: 'vyceai',
+    const shopaikey = {
+      id: 'shopaikey',
       capabilities: ['text'],
       validateConfiguration: jest.fn(),
       generateJSON: jest
@@ -97,7 +102,12 @@ describe('AI module integration', () => {
           isGlobal: true,
           ignoreEnvFile: true,
           skipProcessEnv: true,
-          load: [() => ({ AI_TEXT_PROVIDER: 'vyceai' })],
+          load: [
+            () => ({
+              AI_TEXT_PROVIDER: 'shopaikey',
+              AI_AUTO_TEXT_ROUTING: false,
+            }),
+          ],
         }),
         MockupModule,
         IdeaModule,
@@ -105,8 +115,8 @@ describe('AI module integration', () => {
     })
       .overrideProvider(GeminiService)
       .useValue(gemini)
-      .overrideProvider(VyceAIProvider)
-      .useValue(vyceai)
+      .overrideProvider(ShopAIKeyProvider)
+      .useValue(shopaikey)
       .overrideProvider(R2Service)
       .useValue({ upload })
       .compile();
@@ -148,7 +158,7 @@ describe('AI module integration', () => {
       ).toEqual(['https://cdn.example/mockups/test.png']);
       expect(upload).toHaveBeenCalledTimes(3);
       expect(gemini.editImage).toHaveBeenCalledTimes(2);
-      expect(vyceai.generateJSON).toHaveBeenCalledTimes(1);
+      expect(shopaikey.generateJSON).toHaveBeenCalledTimes(1);
     } finally {
       await module.close();
     }

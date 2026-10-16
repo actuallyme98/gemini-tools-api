@@ -8,9 +8,9 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { ProviderSelectionDto } from '../../ai/provider-selection.dto';
+import { ImageProviderSelectionDto } from '../../ai/provider-selection.dto';
 
-export class ReplaceBackgroundDto extends ProviderSelectionDto {
+export class ReplaceBackgroundDto extends ImageProviderSelectionDto {
   @ApiPropertyOptional({
     maxLength: 2000,
     description:

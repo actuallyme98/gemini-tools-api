@@ -7,7 +7,11 @@ export function imageModelFamily(
   id: string,
 ): 'gemini' | 'gpt' | 'grok' | undefined {
   if (id.length > 128) return undefined;
-  if (/^gemini-[a-z0-9._-]*image[a-z0-9._-]*$/.test(id)) return 'gemini';
+  if (
+    /^gemini-[a-z0-9._-]*image[a-z0-9._-]*$/.test(id) ||
+    /^gemini-nano-banana-[a-z0-9][a-z0-9._-]*$/.test(id)
+  )
+    return 'gemini';
   if (/^gpt-image-[a-z0-9][a-z0-9._-]*$/.test(id)) return 'gpt';
   if (/^grok-imagine-image(?:-[a-z0-9][a-z0-9._-]*)?$/.test(id)) return 'grok';
   return undefined;

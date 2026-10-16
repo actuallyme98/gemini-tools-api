@@ -25,7 +25,9 @@ ShopAIKey dự phòng dùng key riêng `SHOPAIKEY_API_KEY`, không dùng key Gem
 
 ## Chọn model ảnh trên client
 
-`GET /api/ai/providers/shopaikey/image-models` lấy danh sách thực tế từ `https://api.shopaikey.com/v1beta/models` bằng credential backend. Trả ID/tên các model thuộc nhóm đã triển khai xử lý ảnh: Gemini native có `image` trong ID, `gpt-image-*` và `grok-imagine-image*`. Không đưa model chat/vision chỉ trả text hoặc alias Nano Banana dùng endpoint riêng vào bộ chọn. Key không được gửi xuống client. Frontend nhóm lựa chọn theo Google / OpenAI / xAI.
+`GET /api/ai/providers/shopaikey/image-models` lấy danh sách thực tế từ `https://api.shopaikey.com/v1beta/models` bằng credential backend. Trả ID/tên các model thuộc nhóm đã triển khai xử lý ảnh: Gemini native có `image` trong ID, `gemini-nano-banana-*` (bao gồm `gemini-nano-banana-2.1`), `gpt-image-*` và `grok-imagine-image*`. Không đưa model chat/vision chỉ trả text hoặc alias `nano-banana-*` không có tiền tố Gemini dùng endpoint riêng vào bộ chọn. Key không được gửi xuống client. Frontend nhóm lựa chọn theo Google / OpenAI / xAI.
+
+Không dùng số phiên bản để suy ra khả năng tạo ảnh: [Gemini 3.8 Flash](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash) và [Gemini 4 Argon](https://ai.google.dev/gemini-api/docs/models/gemini-4-argon) nhận ảnh nhưng chỉ trả text. [Gemini Nano Banana 2.1](https://ai.google.dev/gemini-api/docs/models/gemini-nano-banana-2.1) là model tạo/chỉnh ảnh và dùng native `generateContent`, khác với các alias Nano Banana của gateway.
 
 Kết quả `{ provider, defaultModel, models: [{ id, name }] }` được cache 5 phút, chia sẻ request đang tải. `?refresh=true` lấy lại danh sách. Model mặc định lấy từ `SHOPAIKEY_MODEL_IMAGE` nếu vẫn nằm trong danh sách. Catalog lỗi không ghi đè cache thành công.
 

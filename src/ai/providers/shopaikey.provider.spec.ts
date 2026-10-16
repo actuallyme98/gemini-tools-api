@@ -79,6 +79,9 @@ describe('ShopAIKey native GenAI provider', () => {
               { id: 'grok-imagine-image-2.0' },
               { id: 'grok-4.6' },
               { id: 'gemini-2.5-flash' },
+              { id: 'gemini-3.8-flash' },
+              { id: 'gemini-4-argon' },
+              { id: 'nano-banana-2.1' },
               { id: 'gemini-nano-banana-2.1' },
               { id: 'gemini-3-pro-image-preview' },
               { id: 'gemini-image/../../private' },
@@ -104,6 +107,7 @@ describe('ShopAIKey native GenAI provider', () => {
           name: 'gemini-3-pro-image-preview',
         },
         { id: 'gemini-3.1-flash-image-preview', name: 'Flash Image' },
+        { id: 'gemini-nano-banana-2.1', name: 'gemini-nano-banana-2.1' },
         { id: 'gpt-image-1', name: 'gpt-image-1' },
         { id: 'gpt-image-1.5-all', name: 'gpt-image-1.5-all' },
         { id: 'grok-imagine-image-2.0', name: 'grok-imagine-image-2.0' },
@@ -119,6 +123,30 @@ describe('ShopAIKey native GenAI provider', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     await provider.getImageModels(true);
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('routes the native Nano Banana 2.1 model through Gemini with both product and background inputs', async () => {
+    const provider = createProvider();
+    await provider.onModuleInit();
+    provider.create.mockResolvedValue(imageResponse);
+    await provider.replaceBackground({
+      productImage: { base64: 'cHJvZHVjdA==', mimeType: 'image/png' },
+      backgroundImage: { base64: 'YmFja2dyb3VuZA==', mimeType: 'image/png' },
+      imageModel: 'gemini-nano-banana-2.1',
+    });
+    expect(provider.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        model: 'gemini-nano-banana-2.1',
+        config: { responseModalities: ['TEXT', 'IMAGE'] },
+      }),
+    );
+    const request = provider.create.mock.calls[0] as [
+      { contents: [{ parts: { inlineData?: { data: string } }[] }] },
+    ];
+    expect(
+      request[0].contents[0].parts
+        .filter((part) => part.inlineData)
+        .map((part) => part.inlineData?.data),
+    ).toEqual(['cHJvZHVjdA==', 'YmFja2dyb3VuZA==']);
   });
   it('keeps per-request image models independent and preserves the default', async () => {
     const provider = createProvider();

@@ -25,9 +25,13 @@ ShopAIKey dự phòng dùng key riêng `SHOPAIKEY_API_KEY`, không dùng key Gem
 
 ## Chọn model ảnh trên client
 
-`GET /api/ai/providers/shopaikey/image-models` lấy danh sách thực tế từ `https://api.shopaikey.com/v1beta/models` bằng credential backend. Chỉ trả ID/tên các model Gemini tạo/chỉnh ảnh tương thích với native GenAI adapter; các model GPT/Grok hoặc alias dùng endpoint khác không xuất hiện. Key không được gửi xuống client.
+`GET /api/ai/providers/shopaikey/image-models` lấy danh sách thực tế từ `https://api.shopaikey.com/v1beta/models` bằng credential backend. Trả ID/tên các model thuộc nhóm đã triển khai xử lý ảnh: Gemini native có `image` trong ID, `gpt-image-*` và `grok-imagine-image*`. Không đưa model chat/vision chỉ trả text hoặc alias Nano Banana dùng endpoint riêng vào bộ chọn. Key không được gửi xuống client. Frontend nhóm lựa chọn theo Google / OpenAI / xAI.
 
 Kết quả `{ provider, defaultModel, models: [{ id, name }] }` được cache 5 phút, chia sẻ request đang tải. `?refresh=true` lấy lại danh sách. Model mặc định lấy từ `SHOPAIKEY_MODEL_IMAGE` nếu vẫn nằm trong danh sách. Catalog lỗi không ghi đè cache thành công.
+
+Gemini dùng native `generateContent`; GPT Image và Grok Imagine dùng [Images API của ShopAIKey](https://shopaikey.com/en/docs/openai-format): `/v1/images/edits` với multipart, `/v1/images/generations` cho prompt không có ảnh. Với nhiều input, `image[]` giữ thứ tự sản phẩm gốc trước, background/reference sau. Prompt và custom instructions được dùng chung với luồng Gemini. Mỗi lần gọi yêu cầu một ảnh, trả base64, kiểm tra định dạng PNG/JPEG/WebP và lưu R2 với MIME/đuôi thực tế. Không tải URL ảnh tùy ý từ phản hồi upstream.
+
+Grok nhận tối đa 5 ảnh đầu vào (gồm sản phẩm gốc); yêu cầu nhiều hơn bị chặn trước khi gọi endpoint trả phí. Danh sách model không bảo đảm nhóm tài khoản có kênh đang phục vụ: lỗi `No available channel` trả `AI_MODEL_UNAVAILABLE`, không retry hoặc tự đổi model; frontend tạm dừng bộ background còn lại. Có thể chọn model khác hoặc yêu cầu ShopAIKey mở kênh/nhóm phù hợp.
 
 Các endpoint tạo mockup, tạo ý tưởng, tạo ảnh reference và thay background nhận thêm trường multipart `imageModel`. API kiểm tra lựa chọn trước các bước sinh text/ảnh trả phí và chỉ chấp nhận model tương thích trong catalog của provider. Model không hợp lệ trả `AI_IMAGE_MODEL_INVALID`; provider không hỗ trợ lựa chọn model trả `AI_IMAGE_MODEL_UNSUPPORTED`. Bỏ qua trường này vẫn dùng model ảnh cấu hình ở backend.
 
@@ -54,16 +58,16 @@ SHOPAIKEY_BASE_URL=https://api.shopaikey.com
 SHOPAIKEY_IMAGE_BASE_URL=https://direct.shopaikey.com
 SHOPAIKEY_MODEL_TEXT=gemini-2.5-flash
 SHOPAIKEY_MODEL_VISION=gemini-2.5-flash
-SHOPAIKEY_MODEL_IMAGE=your-available-native-gemini-image-model
+SHOPAIKEY_MODEL_IMAGE=your-available-image-model
 SHOPAIKEY_TIMEOUT_MS=60000
 SHOPAIKEY_IMAGE_TIMEOUT_MS=180000
 ```
 
 Xóa hoặc đổi các `AI_TEXT_PROVIDER`, `AI_VISION_PROVIDER`, `AI_IMAGE_PROVIDER` đã đặt trước đó nếu muốn cả ba tác vụ dùng `AI_PROVIDER=shopaikey`.
 
-`SHOPAIKEY_MODEL_IMAGE` bắt buộc khi chọn ShopAIKey cho tác vụ image. Dùng model ID Gemini native có khả năng trả ảnh và được cấp cho tài khoản; adapter không gọi endpoint Nano Banana riêng nên không dùng các alias `nano-banana`, `nano-banana-2`, `nano-banana-pro` của endpoint đó. Model text/vision mặc định là `gemini-2.5-flash`; có thể đổi riêng.
+`SHOPAIKEY_MODEL_IMAGE` bắt buộc khi chọn ShopAIKey cho tác vụ image. Dùng model Gemini native, GPT Image hoặc Grok Imagine có trong catalog và được cấp cho tài khoản; adapter không gọi endpoint Nano Banana riêng nên không dùng các alias `nano-banana`, `nano-banana-2`, `nano-banana-pro` của endpoint đó. Model text/vision mặc định là `gemini-2.5-flash`; có thể đổi riêng.
 
-Tác vụ ảnh dùng Direct endpoint mặc định theo khuyến nghị của nhà cung cấp cho các request dài. Timeout text/vision mặc định 60 giây (cấu hình 1–300 giây), timeout ảnh 180 giây (1–600 giây). Các lời gọi tạo/chỉnh ảnh yêu cầu `responseModalities: ['TEXT', 'IMAGE']`. Không gọi API lúc khởi động để kiểm tra model hay tài khoản; cần smoke test bằng credential thực tế. Số lượng `variations` được thực thi tại IdeaService bằng từng lần gọi image provider, tạo đúng số ảnh được yêu cầu (1–10).
+Tác vụ ảnh dùng Direct endpoint mặc định theo khuyến nghị của nhà cung cấp cho các request dài. Timeout text/vision mặc định 60 giây (cấu hình 1–300 giây), timeout ảnh 180 giây (1–600 giây). Lời gọi Gemini ảnh yêu cầu `responseModalities: ['TEXT', 'IMAGE']`; GPT/Grok yêu cầu `response_format: 'b64_json'`. Không gọi API lúc khởi động để kiểm tra model hay tài khoản; cần smoke test bằng credential thực tế. Số lượng `variations` được thực thi tại IdeaService bằng từng lần gọi image provider, tạo đúng số ảnh được yêu cầu (1–10).
 
 Có thể kết hợp các provider:
 

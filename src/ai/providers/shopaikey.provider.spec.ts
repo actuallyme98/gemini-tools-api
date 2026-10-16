@@ -75,6 +75,9 @@ describe('ShopAIKey native GenAI provider', () => {
                 displayName: 'Flash Image',
               },
               { id: 'gpt-image-1' },
+              { id: 'gpt-image-1.5-all' },
+              { id: 'grok-imagine-image-2.0' },
+              { id: 'grok-4.6' },
               { id: 'gemini-2.5-flash' },
               { id: 'gemini-nano-banana-2.1' },
               { id: 'gemini-3-pro-image-preview' },
@@ -101,6 +104,9 @@ describe('ShopAIKey native GenAI provider', () => {
           name: 'gemini-3-pro-image-preview',
         },
         { id: 'gemini-3.1-flash-image-preview', name: 'Flash Image' },
+        { id: 'gpt-image-1', name: 'gpt-image-1' },
+        { id: 'gpt-image-1.5-all', name: 'gpt-image-1.5-all' },
+        { id: 'grok-imagine-image-2.0', name: 'grok-imagine-image-2.0' },
       ],
     });
     expect(concurrent).toEqual(catalog);

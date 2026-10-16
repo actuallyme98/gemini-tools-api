@@ -1,0 +1,125 @@
+import { ConfigService } from '@nestjs/config';
+import type { AIInputImage, GeneratedImage } from '../ai-provider';
+import { ApiError } from '../../common/api-error';
+import { imageMimeType } from '../../utils/image.util';
+
+export function imageModelFamily(
+  id: string,
+): 'gemini' | 'gpt' | 'grok' | undefined {
+  if (id.length > 128) return undefined;
+  if (/^gemini-[a-z0-9._-]*image[a-z0-9._-]*$/.test(id)) return 'gemini';
+  if (/^gpt-image-[a-z0-9][a-z0-9._-]*$/.test(id)) return 'gpt';
+  if (/^grok-imagine-image(?:-[a-z0-9][a-z0-9._-]*)?$/.test(id)) return 'grok';
+  return undefined;
+}
+
+/** ShopAIKey's image APIs; credentials and source images remain on the backend. */
+export class ShopAIKeyImagesClient {
+  constructor(private readonly config: ConfigService) {}
+
+  async generate(
+    model: string,
+    prompt: string,
+    images: AIInputImage[],
+  ): Promise<GeneratedImage> {
+    const family = imageModelFamily(model);
+    const maxImages = family === 'grok' ? 5 : 16;
+    if (images.length > maxImages)
+      throw new ApiError(
+        400,
+        'AI_INPUT_IMAGE_LIMIT',
+        `Model ${model} nhận tối đa ${maxImages} ảnh, bao gồm ảnh sản phẩm gốc.`,
+        {
+          provider: 'shopaikey',
+          suggestion: `Giảm còn tối đa ${maxImages - 1} ảnh tham chiếu hoặc chọn model khác.`,
+        },
+      );
+    const base = this.config
+      .get<string>('SHOPAIKEY_IMAGE_BASE_URL', 'https://direct.shopaikey.com')
+      .replace(/\/$/, '');
+    const apiKey = this.config.getOrThrow<string>('SHOPAIKEY_API_KEY');
+    let body: FormData | string;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${apiKey}`,
+    };
+    if (images.length) {
+      const form = new FormData();
+      form.append('model', model);
+      form.append('prompt', prompt);
+      form.append('n', '1');
+      form.append('response_format', 'b64_json');
+      if (family === 'gpt') form.append('output_format', 'png');
+      for (const [index, image] of images.entries()) {
+        const data = image.base64.replace(/^data:[^,]*,/, '');
+        const extension =
+          image.mimeType === 'image/jpeg'
+            ? 'jpg'
+            : image.mimeType === 'image/webp'
+              ? 'webp'
+              : 'png';
+        form.append(
+          images.length === 1 ? 'image' : 'image[]',
+          new Blob([Uint8Array.from(Buffer.from(data, 'base64'))], {
+            type: image.mimeType,
+          }),
+          `input-${index + 1}.${extension}`,
+        );
+      }
+      body = form;
+    } else {
+      headers['Content-Type'] = 'application/json';
+      body = JSON.stringify({
+        model,
+        prompt,
+        n: 1,
+        response_format: 'b64_json',
+        ...(family === 'gpt' ? { output_format: 'png' } : {}),
+      });
+    }
+    const response = await fetch(
+      `${base}/v1/images/${images.length ? 'edits' : 'generations'}`,
+      {
+        method: 'POST',
+        headers,
+        body,
+        signal: AbortSignal.timeout(
+          this.config.get<number>('SHOPAIKEY_IMAGE_TIMEOUT_MS', 180000),
+        ),
+      },
+    );
+    let result: {
+      data?: { b64_json?: unknown }[];
+      error?: { message?: unknown };
+    };
+    try {
+      result = (await response.json()) as typeof result;
+    } catch {
+      throw Object.assign(
+        new Error('AI provider returned an invalid image response'),
+        { status: response.status >= 400 ? response.status : undefined },
+      );
+    }
+    if (!response.ok || result?.error)
+      throw Object.assign(
+        new Error(
+          typeof result?.error?.message === 'string'
+            ? result.error.message
+            : 'AI image request failed',
+        ),
+        { status: response.ok ? 502 : response.status },
+      );
+    const encoded = result?.data?.[0]?.b64_json;
+    if (
+      typeof encoded !== 'string' ||
+      !encoded ||
+      encoded.length > 48 * 1024 * 1024 ||
+      !/^[A-Za-z0-9+/]+={0,2}$/.test(encoded)
+    )
+      throw new Error('AI provider returned no valid base64 image');
+    const buffer = Buffer.from(encoded, 'base64');
+    const mimeType = imageMimeType(buffer);
+    if (!mimeType)
+      throw new Error('AI provider returned an unsupported image format');
+    return { buffer, mimeType };
+  }
+}

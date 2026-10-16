@@ -1,14 +1,71 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { GoogleGenAIOptions } from '@google/genai' with { 'resolution-mode': 'import' };
+import type {
+  GoogleGenAIOptions,
+  GenerateContentResponse,
+} from '@google/genai' with { 'resolution-mode': 'import' };
 import { GoogleGenAIProvider } from './google-genai.provider';
 import type { AIImageModelCatalog } from '../ai-provider';
+import {
+  imageModelFamily,
+  ShopAIKeyImagesClient,
+} from './shopaikey-images.client';
 
 @Injectable()
 export class ShopAIKeyProvider extends GoogleGenAIProvider {
   readonly name = 'ShopAIKey';
   private modelCache?: { expires: number; catalog: AIImageModelCatalog };
   private modelRequest?: Promise<AIImageModelCatalog>;
+  private readonly imageAPI: ShopAIKeyImagesClient;
+
+  protected override async generateImageContent(
+    contents: Parameters<GoogleGenAIProvider['generateImageContent']>[0],
+    imageModel?: string,
+  ): Promise<GenerateContentResponse> {
+    const model =
+      imageModel ?? this.config.get<string>('SHOPAIKEY_MODEL_IMAGE');
+    const family = model && imageModelFamily(model);
+    if (family !== 'gpt' && family !== 'grok')
+      return super.generateImageContent(contents, imageModel);
+    this.validateConfiguration('image');
+    const parts =
+      typeof contents === 'string'
+        ? [{ text: contents }]
+        : contents.flatMap((content) => content.parts);
+    const result = await this.imageAPI.generate(
+      model,
+      parts
+        .map((part) => part.text || '')
+        .filter(Boolean)
+        .join('\n\n'),
+      parts.flatMap((part) =>
+        part.inlineData?.data
+          ? [
+              {
+                base64: part.inlineData.data,
+                mimeType: part.inlineData.mimeType || 'image/png',
+              },
+            ]
+          : [],
+      ),
+    );
+    return {
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                inlineData: {
+                  data: result.buffer.toString('base64'),
+                  mimeType: result.mimeType,
+                },
+              },
+            ],
+          },
+        },
+      ],
+    } as GenerateContentResponse;
+  }
 
   async getImageModels(refresh = false): Promise<AIImageModelCatalog> {
     this.validateConfiguration('text');
@@ -67,10 +124,8 @@ export class ShopAIKeyProvider extends GoogleGenAIProvider {
       const rawId = model?.id ?? model?.name;
       if (typeof rawId !== 'string') continue;
       const id = rawId.replace(/^models\//, '');
-      // This adapter uses native Gemini generateContent. GPT/Grok and Nano Banana
-      // endpoint aliases cannot be routed through that API just because they appear in the catalog.
-      if (id.length > 128 || !/^gemini-[a-z0-9._-]*image[a-z0-9._-]*$/.test(id))
-        continue;
+      // Only model families with an implemented image-editing transport are exposed.
+      if (!imageModelFamily(id)) continue;
       models.set(id, {
         id,
         name: typeof model.displayName === 'string' ? model.displayName : id,
@@ -90,11 +145,12 @@ export class ShopAIKeyProvider extends GoogleGenAIProvider {
       models: {
         text: { key: 'SHOPAIKEY_MODEL_TEXT', default: 'gemini-2.5-flash' },
         vision: { key: 'SHOPAIKEY_MODEL_VISION', default: 'gemini-2.5-flash' },
-        // Require an explicit native image model ID available to the account.
+        // Require an explicit image model ID available to the account.
         image: { key: 'SHOPAIKEY_MODEL_IMAGE' },
       },
       imageResponseModalities: true,
     });
+    this.imageAPI = new ShopAIKeyImagesClient(config);
   }
 
   protected override clientOptions(

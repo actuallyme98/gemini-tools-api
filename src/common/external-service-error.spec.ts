@@ -36,6 +36,13 @@ describe('Dependency errors exposed to the client', () => {
     [429, 'Too many requests', 'AI_RATE_LIMITED', 429, true],
     [504, 'Deadline exceeded', 'AI_TIMEOUT', 504, true],
     [503, 'Service unavailable', 'AI_UNAVAILABLE', 503, true],
+    [
+      503,
+      'No available channel for model grok-imagine-image-2.0 under group cheap',
+      'AI_MODEL_UNAVAILABLE',
+      503,
+      false,
+    ],
     [400, 'Unsupported input image', 'AI_REQUEST_REJECTED', 422, false],
     [402, 'Payment required', 'AI_BILLING_BLOCKED', 503, false],
   ])(

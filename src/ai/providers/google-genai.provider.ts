@@ -80,7 +80,7 @@ export abstract class GoogleGenAIProvider implements AIProvider {
     return this.config.get<string>(model.key) || model.default;
   }
 
-  private async generateImageContent(
+  protected async generateImageContent(
     contents: string | { role: string; parts: Part[] }[],
     imageModel?: string,
   ): Promise<GenerateContentResponse> {

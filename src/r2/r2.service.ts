@@ -3,6 +3,7 @@ import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { externalServiceError } from '../common/external-service-error';
+import { imageMimeType } from '../utils/image.util';
 
 @Injectable()
 export class R2Service {
@@ -21,7 +22,10 @@ export class R2Service {
     });
   }
 
-  async upload(buffer: Buffer, mime: string = 'image/png'): Promise<string> {
+  async upload(
+    buffer: Buffer,
+    mime: string = imageMimeType(buffer) || 'image/png',
+  ): Promise<string> {
     const extension =
       mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
     const key = `mockups/${randomUUID()}.${extension}`;

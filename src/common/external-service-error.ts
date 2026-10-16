@@ -166,6 +166,17 @@ export function externalServiceError(
           'Quản trị viên cần kiểm tra quyền API key, project và các hạn chế truy cập.',
       },
     );
+  if (/no available channel|no channel available/i.test(source))
+    return new ApiError(
+      503,
+      'AI_MODEL_UNAVAILABLE',
+      `${label}: model đã chọn chưa có kênh phục vụ trong nhóm tài khoản hiện tại.`,
+      {
+        ...options,
+        suggestion:
+          'Chọn model khác hoặc liên hệ provider để mở quyền/kênh cho model này.',
+      },
+    );
   if (
     status === 404 ||
     /model.*(?:not found|no longer available|not available|does not exist)/i.test(

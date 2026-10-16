@@ -8,7 +8,7 @@ Thay background sản phẩm và tạo nhiều kết quả theo bộ: [Backgroun
 
 Backend supports Gemini and ShopAIKey with separate providers for text, vision, and image generation. See [AI provider configuration](docs/ai-providers.md) and [.env.example](.env.example) for setup and extension instructions.
 
-Text automatically discovers GPT/Claude models from internal VyceAI routing, checks health before each use, and falls back to ShopAIKey. Image models can be selected per request from the live ShopAIKey catalog; image/vision providers remain Gemini and ShopAIKey.
+Text automatically discovers GPT/Claude models from internal VyceAI routing, checks health before each use, and falls back to ShopAIKey. Image models can be selected per request from the live ShopAIKey catalog: Gemini image models, GPT Image and Grok Imagine. Image/vision providers remain Gemini and ShopAIKey. GPT/Grok image requests use the ShopAIKey Images API; unavailable account channels produce a clear error without substituting a different model.
 
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>

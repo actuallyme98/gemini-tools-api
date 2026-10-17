@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import type { AIInputImage, GeneratedImage } from '../ai-provider';
 import { ApiError } from '../../common/api-error';
 import { imageMimeType } from '../../utils/image.util';
+import { AuditLogService } from '../../audit/audit-log.service';
 
 export function imageModelFamily(
   id: string,
@@ -19,7 +20,10 @@ export function imageModelFamily(
 
 /** ShopAIKey's image APIs; credentials and source images remain on the backend. */
 export class ShopAIKeyImagesClient {
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    private readonly audit?: AuditLogService,
+  ) {}
 
   async generate(
     model: string,
@@ -80,6 +84,21 @@ export class ShopAIKeyImagesClient {
         ...(family === 'gpt' ? { output_format: 'png' } : {}),
       });
     }
+    await this.audit?.aiRequest(
+      'shopaikey',
+      model,
+      images.length ? 'images/edits' : 'images/generations',
+      [
+        { text: prompt },
+        ...images.map((image) => ({
+          buffer: Buffer.from(
+            image.base64.replace(/^data:[^,]*,/, ''),
+            'base64',
+          ),
+          mimeType: image.mimeType,
+        })),
+      ],
+    );
     const response = await fetch(
       `${base}/v1/images/${images.length ? 'edits' : 'generations'}`,
       {

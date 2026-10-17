@@ -58,6 +58,7 @@ export class BackgroundController {
           type: 'string',
           enum: ['image/png', 'image/jpeg', 'image/webp'],
         },
+        requestId: { type: 'string', format: 'uuid' },
       },
     },
   })
@@ -88,7 +89,7 @@ export class BackgroundController {
       },
     },
   })
-  replace(
+  async replace(
     @UploadedFiles()
     files:
       | {
@@ -99,7 +100,7 @@ export class BackgroundController {
     @Body() body: ReplaceBackgroundDto,
     @Res({ passthrough: true }) response: Response,
   ) {
-    return this.backgrounds.replace({
+    const result = await this.backgrounds.replace({
       productImage: requireImage(files?.productImage?.[0], 'Product image'),
       backgroundImage: requireImage(
         files?.backgroundImage?.[0],
@@ -111,5 +112,10 @@ export class BackgroundController {
       imageModel: body.imageModel,
       signal: requestSignal(response),
     });
+    const requestId = response.getHeader('X-Request-Id');
+    return {
+      ...result,
+      ...(requestId ? { requestId: String(requestId) } : {}),
+    };
   }
 }

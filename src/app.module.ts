@@ -7,6 +7,7 @@ import { HealthController } from './health.controller';
 import { APP_FILTER } from '@nestjs/core';
 import { ApiExceptionFilter } from './common/api-exception.filter';
 import { BackgroundModule } from './background/background.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
   controllers: [HealthController],
@@ -16,6 +17,7 @@ import { BackgroundModule } from './background/background.module';
       isGlobal: true,
       validationSchema: envValidationSchema,
     }),
+    AuditModule,
     MockupModule,
     IdeaModule,
     BackgroundModule,

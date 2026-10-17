@@ -6,7 +6,7 @@ export const envValidationSchema = Joi.object({
     .default('development'),
 
   // Provider IDs are resolved against the registry by AIService at startup.
-  AI_PROVIDER: Joi.string().default('gemini'),
+  AI_PROVIDER: Joi.string().default('shopaikey'),
   AI_TEXT_PROVIDER: Joi.string(),
   AI_VISION_PROVIDER: Joi.string(),
   AI_IMAGE_PROVIDER: Joi.string(),
@@ -55,6 +55,13 @@ export const envValidationSchema = Joi.object({
     .default(180000),
 
   PORT: Joi.number().integer().min(1).max(65535).default(5177),
+  AUDIT_LOG_DIR: Joi.string().default('./logs'),
+  AUDIT_LOG_RETENTION_DAYS: Joi.number().integer().min(1).max(90).default(7),
+  AUDIT_IMAGE_MAX_BYTES_PER_DAY: Joi.number()
+    .integer()
+    .min(0)
+    .max(10 * 1024 * 1024 * 1024)
+    .default(512 * 1024 * 1024),
   R2_PRIVATE_URL: Joi.string().uri({ scheme: ['https', 'http'] }),
   R2_ACCOUNT_ID: Joi.string().required(),
   R2_BUCKET_NAME: Joi.string().required(),

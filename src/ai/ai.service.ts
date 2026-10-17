@@ -372,7 +372,7 @@ export class AIService implements OnModuleInit {
     const key = `AI_${capability.toUpperCase()}_PROVIDER`;
     const id =
       this.config.get<string>(key) ||
-      this.config.get<string>('AI_PROVIDER', 'gemini');
+      this.config.get<string>('AI_PROVIDER', 'shopaikey');
     const provider = this.providers.get(id);
     if (!provider) throw new Error(`Unknown AI provider "${id}" for ${key}`);
     if (!provider.capabilities.includes(capability)) {

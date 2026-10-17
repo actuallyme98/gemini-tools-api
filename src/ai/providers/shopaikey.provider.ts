@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { AuditLogService } from '../../audit/audit-log.service';
 import { ConfigService } from '@nestjs/config';
 import type {
   GoogleGenAIOptions,
@@ -138,19 +139,26 @@ export class ShopAIKeyProvider extends GoogleGenAIProvider {
       models: [...models.values()].sort((a, b) => a.id.localeCompare(b.id)),
     };
   }
-  constructor(config: ConfigService) {
-    super(config, {
-      id: 'shopaikey',
-      apiKeyConfig: 'SHOPAIKEY_API_KEY',
-      models: {
-        text: { key: 'SHOPAIKEY_MODEL_TEXT', default: 'gemini-2.5-flash' },
-        vision: { key: 'SHOPAIKEY_MODEL_VISION', default: 'gemini-2.5-flash' },
-        // Require an explicit image model ID available to the account.
-        image: { key: 'SHOPAIKEY_MODEL_IMAGE' },
+  constructor(config: ConfigService, @Optional() audit?: AuditLogService) {
+    super(
+      config,
+      {
+        id: 'shopaikey',
+        apiKeyConfig: 'SHOPAIKEY_API_KEY',
+        models: {
+          text: { key: 'SHOPAIKEY_MODEL_TEXT', default: 'gemini-2.5-flash' },
+          vision: {
+            key: 'SHOPAIKEY_MODEL_VISION',
+            default: 'gemini-2.5-flash',
+          },
+          // Require an explicit image model ID available to the account.
+          image: { key: 'SHOPAIKEY_MODEL_IMAGE' },
+        },
+        imageResponseModalities: true,
       },
-      imageResponseModalities: true,
-    });
-    this.imageAPI = new ShopAIKeyImagesClient(config);
+      audit,
+    );
+    this.imageAPI = new ShopAIKeyImagesClient(config, audit);
   }
 
   protected override clientOptions(

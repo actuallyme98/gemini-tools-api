@@ -4,6 +4,9 @@ services:
     env_file: .env
     environment:
       PORT: 5177
+      AUDIT_LOG_DIR: /app/logs
+    volumes:
+      - api-logs:/app/logs
     ports:
       - "5177:5177"
   app:
@@ -14,3 +17,6 @@ services:
       - "5173:80"
     depends_on:
       - api
+
+volumes:
+  api-logs:

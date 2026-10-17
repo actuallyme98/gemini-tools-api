@@ -16,6 +16,8 @@ ENV NODE_ENV=production PORT=5177
 COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package*.json ./
+COPY --chown=node:node scripts/read-audit-logs.cjs ./scripts/read-audit-logs.cjs
+RUN mkdir -p /app/logs && chown node:node /app/logs && chmod 700 /app/logs
 USER node
 EXPOSE 5177
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \

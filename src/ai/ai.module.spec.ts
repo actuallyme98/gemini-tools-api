@@ -104,6 +104,7 @@ describe('AI module integration', () => {
           skipProcessEnv: true,
           load: [
             () => ({
+              AI_PROVIDER: 'gemini',
               AI_TEXT_PROVIDER: 'shopaikey',
               AI_AUTO_TEXT_ROUTING: false,
             }),

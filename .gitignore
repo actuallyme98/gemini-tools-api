@@ -394,6 +394,7 @@ Temporary Items
 
 =======
 # Local
+logs/
 .npm-cache/
 .env
 .env.*

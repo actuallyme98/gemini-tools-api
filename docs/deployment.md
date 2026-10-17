@@ -155,6 +155,8 @@ Không chạy `docker compose config` không có `--quiet` vì có thể in runt
 
 Mỗi service có giới hạn RAM và log rotation. Script không chạy prune toàn server; giữ image cũ để rollback. Release có thời gian gián đoạn ngắn khi Compose recreate service, chưa phải rolling/zero-downtime.
 
+Nhật ký request/AI và ảnh chẩn đoán riêng tư lưu trên named volume `api-logs` tại `/app/logs`, giữ qua recreate/deploy. Xem cách tra cứu bằng request ID và cấu hình lưu trữ tại [audit-logs.md](audit-logs.md). Volume được khởi tạo quyền ghi cho user `node` từ image; không công khai thư mục qua Nginx.
+
 Sau lần deploy đầu thành công, bật auto deploy:
 
 ```bash

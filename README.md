@@ -6,7 +6,9 @@ Phản hồi lỗi thống nhất cho frontend, mã lỗi và cách tra cứu lo
 
 Áp hình in/họa tiết lên sản phẩm trong ảnh tham chiếu, giữ nguyên cảnh và tạo nhiều kết quả theo bộ: [Mockup Studio](docs/background-studio.md).
 
-Backend supports Gemini and ShopAIKey with separate providers for text, vision, and image generation. See [AI provider configuration](docs/ai-providers.md) and [.env.example](.env.example) for setup and extension instructions.
+Log bền vững theo request ID, provider/model, prompt và ảnh đầu vào/kết quả: [Log chẩn đoán](docs/audit-logs.md).
+
+Backend defaults to ShopAIKey and supports separate providers for text, vision, and image generation. The client shows ShopAIKey as Provider 1 and hides Gemini from its selector. See [AI provider configuration](docs/ai-providers.md) and [.env.example](.env.example) for setup and extension instructions.
 
 Text automatically discovers GPT/Claude models from internal VyceAI routing, checks health before each use, and falls back to ShopAIKey. Image models can be selected per request from the live ShopAIKey catalog: Gemini image models, GPT Image and Grok Imagine. Image/vision providers remain Gemini and ShopAIKey. GPT/Grok image requests use the ShopAIKey Images API; unavailable account channels produce a clear error without substituting a different model.
 

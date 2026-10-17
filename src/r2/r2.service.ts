@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
+import { AuditLogService } from '../audit/audit-log.service';
 import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
@@ -10,7 +11,10 @@ export class R2Service {
   private client: S3Client;
   private readonly keyPrefix: string;
 
-  constructor(private readonly config: ConfigService) {
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly audit?: AuditLogService,
+  ) {
     this.keyPrefix = this.config.get<string>('R2_KEY_PREFIX', 'gemini-tools');
     this.client = new S3Client({
       region: 'auto',
@@ -31,6 +35,7 @@ export class R2Service {
     const extension =
       mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
     const key = `${this.keyPrefix}/mockups/${randomUUID()}.${extension}`;
+    await this.audit?.generatedImage(buffer, mime);
 
     try {
       await this.client.send(
@@ -42,12 +47,19 @@ export class R2Service {
         }),
       );
     } catch (error) {
-      throw externalServiceError('storage', error);
+      const failure = externalServiceError('storage', error);
+      await this.audit?.write('storage_failed', {
+        key,
+        error: failure.getResponse(),
+      });
+      throw failure;
     }
 
     const publicUrl = this.config
       .get<string>('R2_PUBLIC_URL')
       .replace(/\/+$/, '');
-    return `${publicUrl}/${key}`;
+    const url = `${publicUrl}/${key}`;
+    await this.audit?.write('storage_completed', { key, url, mimeType: mime });
+    return url;
   }
 }

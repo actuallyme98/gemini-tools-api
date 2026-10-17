@@ -8,6 +8,9 @@ services:
     environment:
       NODE_ENV: production
       PORT: '5177'
+      AUDIT_LOG_DIR: /app/logs
+    volumes:
+      - api-logs:/app/logs
     ports:
       - '127.0.0.1:3021:5177'
     mem_limit: 1g
@@ -36,3 +39,6 @@ services:
       options:
         max-size: '5m'
         max-file: '3'
+
+volumes:
+  api-logs:

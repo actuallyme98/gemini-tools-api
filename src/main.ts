@@ -16,7 +16,7 @@ async function bootstrap() {
     }),
   );
 
-  app.enableCors({ origin: '*' });
+  app.enableCors({ origin: '*', exposedHeaders: ['X-Request-Id'] });
 
   const configService: ConfigService = app.get(ConfigService);
 

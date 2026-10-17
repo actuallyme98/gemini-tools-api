@@ -46,7 +46,10 @@ describe('AIService provider routing', () => {
   };
   it('rejects a provider missing background replacement without falling back', async () => {
     const legacy = provider('legacy', ['text', 'vision', 'image']);
-    const service = new AIService(new ConfigService({}), [gemini, legacy]);
+    const service = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini, legacy],
+    );
     await expect(
       service.replaceBackground(backgroundParams, 'legacy'),
     ).rejects.toThrow('chưa hỗ trợ');
@@ -61,7 +64,10 @@ describe('AIService provider routing', () => {
       ...provider('selected', ['text', 'vision', 'image']),
       replaceBackground: jest.fn().mockResolvedValue(result),
     };
-    const service = new AIService(new ConfigService({}), [gemini, selected]);
+    const service = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini, selected],
+    );
     await expect(
       service.replaceBackground(backgroundParams, 'selected'),
     ).rejects.toMatchObject({
@@ -76,20 +82,25 @@ describe('AIService provider routing', () => {
     textOnly = provider('text-only', ['text']);
   });
 
-  it('keeps Gemini as default for all tasks', () => {
-    const service = new AIService(new ConfigService({}), [gemini, textOnly]);
+  it('defaults to ShopAIKey for all tasks without requiring Gemini', () => {
+    const shopaikey = provider('shopaikey', ['text', 'vision', 'image']);
+    const service = new AIService(new ConfigService({}), [gemini, shopaikey]);
     service.onModuleInit();
-    expect(gemini.validateConfiguration).toHaveBeenCalledTimes(3);
-    expect(textOnly.validateConfiguration).not.toHaveBeenCalled();
+    expect(shopaikey.validateConfiguration).toHaveBeenCalledTimes(3);
+    expect(gemini.validateConfiguration).not.toHaveBeenCalled();
+    expect(service.getProviders().defaults).toEqual({
+      text: 'shopaikey',
+      vision: 'shopaikey',
+      image: 'shopaikey',
+    });
   });
 
   it('keeps concurrent request overrides independent from system defaults', async () => {
     const custom = provider('custom', ['text', 'vision', 'image']);
-    const service = new AIService(new ConfigService({}), [
-      gemini,
-      textOnly,
-      custom,
-    ]);
+    const service = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini, textOnly, custom],
+    );
     gemini.generateJSON.mockResolvedValue(['default prompt']);
     textOnly.generateJSON.mockResolvedValue(['text-only prompt']);
     custom.generateJSON.mockResolvedValue(['custom prompt']);
@@ -123,12 +134,10 @@ describe('AIService provider routing', () => {
     offline.validateConfiguration.mockImplementation(() => {
       throw new Error('private API key');
     });
-    const configured = new AIService(new ConfigService({}), [
-      gemini,
-      textOnly,
-      custom,
-      offline,
-    ]);
+    const configured = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini, textOnly, custom, offline],
+    );
     const catalog = configured.getProviders();
     expect(catalog.providers).toContainEqual({
       id: 'text-only',
@@ -164,7 +173,10 @@ describe('AIService provider routing', () => {
   });
 
   it('propagates selected provider execution errors without spending on a fallback', async () => {
-    const service = new AIService(new ConfigService({}), [gemini, textOnly]);
+    const service = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini, textOnly],
+    );
     textOnly.generateJSON.mockRejectedValue(new Error('Upstream unavailable'));
     await expect(
       service.generateMockupPrompts(analysis, 1, 'text-only'),
@@ -174,7 +186,10 @@ describe('AIService provider routing', () => {
 
   it('routes text to text-only provider and product analysis and image editing to Gemini', async () => {
     const service = new AIService(
-      new ConfigService({ AI_TEXT_PROVIDER: 'text-only' }),
+      new ConfigService({
+        AI_PROVIDER: 'gemini',
+        AI_TEXT_PROVIDER: 'text-only',
+      }),
       [gemini, textOnly],
     );
     service.onModuleInit();
@@ -242,6 +257,7 @@ describe('AIService provider routing', () => {
     (capability) => {
       const service = new AIService(
         new ConfigService({
+          AI_PROVIDER: 'gemini',
           [`AI_${capability.toUpperCase()}_PROVIDER`]: 'text-only',
         }),
         [gemini, textOnly],
@@ -259,7 +275,11 @@ describe('AIService provider routing', () => {
     );
     expect(() => service.onModuleInit()).toThrow('Unknown AI provider "typo"');
     expect(
-      () => new AIService(new ConfigService({}), [gemini, gemini]),
+      () =>
+        new AIService(new ConfigService({ AI_PROVIDER: 'gemini' }), [
+          gemini,
+          gemini,
+        ]),
     ).toThrow('Duplicate AI provider');
   });
 
@@ -286,7 +306,10 @@ describe('AIService provider routing', () => {
     { result: ['valid', ''] },
     { result: { prompts: ['one', 'two'] } },
   ])('rejects invalid mockup output $result', async ({ result }) => {
-    const service = new AIService(new ConfigService({}), [gemini]);
+    const service = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini],
+    );
     jest.mocked(gemini.generateJSON).mockResolvedValue(result);
     await expect(service.generateMockupPrompts(analysis, 2)).rejects.toThrow(
       'không trả về kết quả hợp lệ',
@@ -294,7 +317,10 @@ describe('AIService provider routing', () => {
   });
 
   it('rejects malformed analysis and idea output before image generation', async () => {
-    const service = new AIService(new ConfigService({}), [gemini]);
+    const service = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini],
+    );
     jest
       .mocked(gemini.generateJSON)
       .mockResolvedValue({ productType: 'shirt' });
@@ -317,11 +343,17 @@ describe('AIService provider routing', () => {
 
   it('rejects an image provider that declares support but omits operations', () => {
     delete gemini.editImage;
-    const service = new AIService(new ConfigService({}), [gemini]);
+    const service = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini],
+    );
     expect(() => service.onModuleInit()).toThrow('missing image operations');
   });
   it('rejects an incorrect idea count', async () => {
-    const service = new AIService(new ConfigService({}), [gemini]);
+    const service = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini],
+    );
     gemini.generateJSON.mockResolvedValue([
       { title: 'one', description: '', prompt: 'edit' },
     ]);
@@ -330,7 +362,10 @@ describe('AIService provider routing', () => {
     ).rejects.toThrow('không trả về kết quả hợp lệ');
   });
   it('rejects malformed optional analysis metadata', async () => {
-    const service = new AIService(new ConfigService({}), [gemini]);
+    const service = new AIService(
+      new ConfigService({ AI_PROVIDER: 'gemini' }),
+      [gemini],
+    );
     gemini.generateJSON.mockResolvedValue({
       ...analysis,
       characters: { hasCharacters: true, characterNames: 'wrong type' },

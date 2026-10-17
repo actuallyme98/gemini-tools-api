@@ -4,10 +4,11 @@ set -euo pipefail
 IMAGE="${1:?Image required}"
 NAME="gemini-api-smoke-${GITHUB_RUN_ID:-$$}"
 trap 'docker rm -f "$NAME" >/dev/null 2>&1 || true' EXIT
-# The default text router validates its ShopAIKey fallback at startup.
+# Default image/vision and the text fallback use ShopAIKey at startup.
 # Placeholder credentials exercise that configuration without calling either AI provider.
 docker run -d --name "$NAME" --env-file .env.example -e NODE_ENV=production \
   -e SHOPAIKEY_API_KEY=ci-placeholder-shopaikey-key \
+  -e SHOPAIKEY_MODEL_IMAGE=gemini-3.1-flash-image-preview \
   -e VYCEAI_API_KEY=ci-placeholder-vyceai-key \
   -p 127.0.0.1:5181:5177 "$IMAGE" >/dev/null
 for _ in {1..40}; do

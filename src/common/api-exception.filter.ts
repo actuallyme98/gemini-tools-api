@@ -4,21 +4,26 @@ import {
   ExceptionFilter,
   HttpException,
   Logger,
+  Optional,
 } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
 import { sanitizeErrorMessage } from './error-sanitizer';
+import { AuditLogService } from '../audit/audit-log.service';
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(ApiExceptionFilter.name);
+
+  constructor(@Optional() private readonly audit?: AuditLogService) {}
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.switchToHttp();
     const request = http.getRequest<Request>();
     const response = http.getResponse<Response>();
     if (response.headersSent || response.destroyed) return;
-    const requestId = randomUUID();
+    const traced = response.getHeader('X-Request-Id');
+    const requestId = String(traced || randomUUID());
     const parser =
       typeof exception === 'object' && exception !== null
         ? (exception as Record<string, unknown>)
@@ -102,6 +107,13 @@ export class ApiExceptionFilter implements ExceptionFilter {
       path: request.path,
       timestamp: new Date().toISOString(),
     };
+    // Parser, guard and unmatched-route failures can occur before interceptors.
+    if (!traced)
+      void this.audit?.write(
+        'http_completed',
+        { status: statusCode, error: body, cancelled: false },
+        { requestId, method: request.method, path: request.path },
+      );
     if (statusCode >= 500) {
       const cause =
         exception instanceof HttpException ? exception.cause : exception;

@@ -4,7 +4,7 @@
 
 | Biến                 | Tác vụ                           | Mặc định              |
 | -------------------- | -------------------------------- | --------------------- |
-| `AI_PROVIDER`        | Provider chung                   | `gemini`              |
+| `AI_PROVIDER`        | Provider chung                   | `shopaikey`           |
 | `AI_TEXT_PROVIDER`   | Sinh prompt mockup, sinh ý tưởng | Giá trị `AI_PROVIDER` |
 | `AI_VISION_PROVIDER` | Phân tích ảnh sản phẩm           | Giá trị `AI_PROVIDER` |
 | `AI_IMAGE_PROVIDER`  | Sinh/chỉnh ảnh, ảnh từ reference | Giá trị `AI_PROVIDER` |
@@ -37,13 +37,13 @@ Grok nhận tối đa 5 ảnh đầu vào (gồm sản phẩm gốc); yêu cầu
 
 Các endpoint tạo mockup, tạo ý tưởng, tạo ảnh reference và áp hình in vào ảnh tham chiếu nhận thêm trường multipart `imageModel`. API kiểm tra lựa chọn trước các bước sinh text/ảnh trả phí và chỉ chấp nhận model tương thích trong catalog của provider. Model không hợp lệ trả `AI_IMAGE_MODEL_INVALID`; provider không hỗ trợ lựa chọn model trả `AI_IMAGE_MODEL_UNSUPPORTED`. Bỏ qua trường này vẫn dùng model ảnh cấu hình ở backend.
 
-Client lưu model ShopAIKey riêng trên trình duyệt; đổi sang Gemini không gửi model ShopAIKey. Lỗi tải catalog hoặc model đã lưu bị gỡ không tự đổi sang model khác; cần tải lại hoặc chọn model hợp lệ. Một batch giữ provider/model lúc bắt đầu; retry dùng lựa chọn hiện tại. Phân tích ảnh và text không dùng model ảnh đã chọn.
+Client mặc định dùng Provider 1 (ShopAIKey), xếp đầu danh sách; Gemini bị ẩn và các lựa chọn Gemini/VyceAI đã lưu được chuyển sang Provider 1. Client lưu model ShopAIKey riêng trên trình duyệt. Lỗi tải catalog hoặc model đã lưu bị gỡ không tự đổi sang model khác; cần tải lại hoặc chọn model hợp lệ. Một batch giữ provider/model lúc bắt đầu; retry dùng lựa chọn hiện tại. Phân tích ảnh và text không dùng model ảnh đã chọn.
 
 ## Gemini
 
-Gemini là provider mặc định. Cấu hình GEMINI_API_KEY và các model GEMINI_MODEL_TEXT, GEMINI_MODEL_MULTIMODAL, GEMINI_MODEL_IMAGE trong .env; dùng model được cấp cho tài khoản.
+Gemini được giữ trong registry backend nhưng ẩn khỏi ô chọn trên client. Nếu cần dùng qua API hoặc cấu hình riêng, đặt provider tương ứng là `gemini`, cấu hình GEMINI_API_KEY và các model GEMINI_MODEL_TEXT, GEMINI_MODEL_MULTIMODAL, GEMINI_MODEL_IMAGE trong .env; dùng model được cấp cho tài khoản.
 
-Credential chỉ bắt buộc cho provider được chọn. ShopAIKey có thể được bật cùng Gemini bằng SHOPAIKEY_API_KEY và SHOPAIKEY_MODEL_IMAGE mà không đổi AI_PROVIDER. Dropdown lấy khả năng từ API; provider chưa có key/model cần thiết vẫn báo chưa cấu hình.
+ShopAIKey là provider mặc định cho ảnh/vision. Cấu hình SHOPAIKEY_API_KEY và SHOPAIKEY_MODEL_IMAGE. Credential chỉ bắt buộc cho provider được chọn; dropdown lấy khả năng từ API và ẩn Gemini, provider chưa có key/model cần thiết vẫn báo chưa cấu hình.
 
 ## ShopAIKey (native Google GenAI)
 

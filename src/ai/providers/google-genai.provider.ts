@@ -16,6 +16,7 @@ import type {
 import type { AICapability } from '../ai-provider';
 import { parseAIJSON } from '../json.util';
 import { ApiError } from '../../common/api-error';
+import { AuditLogService, type AuditPart } from '../../audit/audit-log.service';
 
 interface GoogleGenAIProviderConfig {
   id: string;
@@ -37,6 +38,7 @@ export abstract class GoogleGenAIProvider implements AIProvider {
   constructor(
     protected readonly config: ConfigService,
     private readonly providerConfig: GoogleGenAIProviderConfig,
+    private readonly audit?: AuditLogService,
   ) {
     this.id = providerConfig.id;
   }
@@ -85,6 +87,11 @@ export abstract class GoogleGenAIProvider implements AIProvider {
     imageModel?: string,
   ): Promise<GenerateContentResponse> {
     this.validateConfiguration('image');
+    await this.auditContents(
+      imageModel ?? this.modelImage,
+      'generateContent:image',
+      contents,
+    );
     const response = await this.imageGenai.models.generateContent({
       model: imageModel ?? this.modelImage,
       contents,
@@ -94,6 +101,29 @@ export abstract class GoogleGenAIProvider implements AIProvider {
     });
     this.assertResponse(response);
     return response;
+  }
+
+  private async auditContents(
+    model: string,
+    transport: string,
+    contents: string | { role: string; parts: Part[] }[],
+  ) {
+    if (!this.audit) return;
+    const parts: AuditPart[] = [];
+    for (const part of typeof contents === 'string'
+      ? [{ text: contents }]
+      : contents.flatMap((content) => content.parts)) {
+      if (part.text !== undefined) parts.push({ text: part.text });
+      if (part.inlineData?.data)
+        parts.push({
+          buffer: Buffer.from(
+            part.inlineData.data.replace(/^data:[^,]*,/, ''),
+            'base64',
+          ),
+          mimeType: part.inlineData.mimeType || 'image/png',
+        });
+    }
+    await this.audit.aiRequest(this.id, model, transport, parts);
   }
 
   private assertResponse(response: GenerateContentResponse): void {
@@ -142,6 +172,11 @@ export abstract class GoogleGenAIProvider implements AIProvider {
         : image.base64;
       parts.push({ inlineData: { mimeType: image.mimeType, data } });
     }
+    await this.auditContents(
+      image ? this.modelMultimodal : this.modelText,
+      'generateContent:json',
+      [{ role: 'user', parts }],
+    );
     const response = await this.genai.models.generateContent({
       model: image ? this.modelMultimodal : this.modelText,
       contents: [{ role: 'user', parts }],

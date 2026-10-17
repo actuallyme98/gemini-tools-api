@@ -10,18 +10,21 @@ const infrastructure = {
 };
 
 describe('AI environment configuration', () => {
-  it('defaults to Gemini without requiring an unused OpenAI key', () => {
+  it('defaults to ShopAIKey without requiring unused provider keys', () => {
     const result = envValidationSchema.validate({
       ...infrastructure,
-      GEMINI_API_KEY: 'test-key',
+      SHOPAIKEY_API_KEY: 'test-key',
     });
     const value: unknown = result.value;
     expect(result.error).toBeUndefined();
     expect(value).toMatchObject({
-      AI_PROVIDER: 'gemini',
+      AI_PROVIDER: 'shopaikey',
       AI_AUTO_TEXT_ROUTING: true,
       R2_KEY_PREFIX: 'gemini-tools',
       VYCEAI_HEALTH_TIMEOUT_MS: 10000,
+      AUDIT_LOG_DIR: './logs',
+      AUDIT_LOG_RETENTION_DAYS: 7,
+      AUDIT_IMAGE_MAX_BYTES_PER_DAY: 536870912,
     });
     expect(value).not.toHaveProperty('OPENAI_API_KEY');
   });
@@ -34,6 +37,9 @@ describe('AI environment configuration', () => {
     { SHOPAIKEY_IMAGE_BASE_URL: 'not-a-url' },
     { SHOPAIKEY_TIMEOUT_MS: '0' },
     { SHOPAIKEY_IMAGE_TIMEOUT_MS: '600001' },
+    { AUDIT_LOG_RETENTION_DAYS: '0' },
+    { AUDIT_LOG_RETENTION_DAYS: '91' },
+    { AUDIT_IMAGE_MAX_BYTES_PER_DAY: '-1' },
   ])('rejects invalid provider options %j', (options) => {
     expect(
       envValidationSchema.validate({ ...infrastructure, ...options }).error,

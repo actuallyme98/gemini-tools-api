@@ -148,9 +148,9 @@ describe('Client-selected provider routing', () => {
       .expect(200);
     const catalog = res.body as AIProviderCatalog;
     expect(catalog.defaults).toEqual({
-      text: 'gemini',
-      vision: 'gemini',
-      image: 'gemini',
+      text: 'shopaikey',
+      vision: 'shopaikey',
+      image: 'shopaikey',
     });
     expect(
       catalog.providers.find((entry) => entry.id === 'offline'),
@@ -303,7 +303,8 @@ describe('Client-selected provider routing', () => {
     expect(shopaikey.generateImagesFromReferalImages).toHaveBeenCalledTimes(1);
     expect(gemini.editImage).not.toHaveBeenCalled();
     await post('ideas/analyze-product', {}).expect(201);
-    expect(gemini.generateJSON).toHaveBeenCalledTimes(1);
+    expect(shopaikey.generateJSON).toHaveBeenCalledTimes(2);
+    expect(gemini.generateJSON).not.toHaveBeenCalled();
   });
   it('keeps selection through text generation and idea image generation', async () => {
     shopaikey.generateJSON.mockResolvedValueOnce([

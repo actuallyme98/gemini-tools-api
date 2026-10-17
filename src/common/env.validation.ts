@@ -58,6 +58,11 @@ export const envValidationSchema = Joi.object({
   R2_PRIVATE_URL: Joi.string().uri({ scheme: ['https', 'http'] }),
   R2_ACCOUNT_ID: Joi.string().required(),
   R2_BUCKET_NAME: Joi.string().required(),
+  R2_KEY_PREFIX: Joi.string()
+    .trim()
+    .max(128)
+    .pattern(/^[a-zA-Z0-9][a-zA-Z0-9_-]*(?:\/[a-zA-Z0-9][a-zA-Z0-9_-]*)*$/)
+    .default('gemini-tools'),
   R2_PUBLIC_URL: Joi.string().uri().required(),
   R2_ACCESS_KEY_ID: Joi.string().required(),
   R2_SECRET_ACCESS_KEY: Joi.string().required(),

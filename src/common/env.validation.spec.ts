@@ -20,6 +20,7 @@ describe('AI environment configuration', () => {
     expect(value).toMatchObject({
       AI_PROVIDER: 'gemini',
       AI_AUTO_TEXT_ROUTING: true,
+      R2_KEY_PREFIX: 'gemini-tools',
       VYCEAI_HEALTH_TIMEOUT_MS: 10000,
     });
     expect(value).not.toHaveProperty('OPENAI_API_KEY');
@@ -65,6 +66,34 @@ describe('AI environment configuration', () => {
     expect(value).toMatchObject({
       SHOPAIKEY_TIMEOUT_MS: 30000,
       SHOPAIKEY_IMAGE_TIMEOUT_MS: 240000,
+    });
+  });
+
+  it.each([
+    '',
+    '/',
+    '/ezihubb',
+    'gemini-tools/',
+    '../ezihubb',
+    'gemini-tools/../ezihubb',
+    'apps//gemini-tools',
+    'gemini-tools\\uploads',
+    'gemini-tools?path=ezihubb',
+  ])('rejects unsafe or empty shared-bucket prefix %j', (prefix) => {
+    expect(
+      envValidationSchema.validate({ ...infrastructure, R2_KEY_PREFIX: prefix })
+        .error,
+    ).toBeDefined();
+  });
+
+  it('accepts an explicit namespace under a shared bucket', () => {
+    const result = envValidationSchema.validate({
+      ...infrastructure,
+      R2_KEY_PREFIX: 'apps/gemini-tools',
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.value as unknown).toMatchObject({
+      R2_KEY_PREFIX: 'apps/gemini-tools',
     });
   });
 });

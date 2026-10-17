@@ -8,8 +8,10 @@ import { imageMimeType } from '../utils/image.util';
 @Injectable()
 export class R2Service {
   private client: S3Client;
+  private readonly keyPrefix: string;
 
   constructor(private readonly config: ConfigService) {
+    this.keyPrefix = this.config.get<string>('R2_KEY_PREFIX', 'gemini-tools');
     this.client = new S3Client({
       region: 'auto',
       endpoint:
@@ -28,7 +30,7 @@ export class R2Service {
   ): Promise<string> {
     const extension =
       mime === 'image/jpeg' ? 'jpg' : mime === 'image/webp' ? 'webp' : 'png';
-    const key = `mockups/${randomUUID()}.${extension}`;
+    const key = `${this.keyPrefix}/mockups/${randomUUID()}.${extension}`;
 
     try {
       await this.client.send(
@@ -43,6 +45,9 @@ export class R2Service {
       throw externalServiceError('storage', error);
     }
 
-    return `${this.config.get<string>('R2_PUBLIC_URL')}/${key}`;
+    const publicUrl = this.config
+      .get<string>('R2_PUBLIC_URL')
+      .replace(/\/+$/, '');
+    return `${publicUrl}/${key}`;
   }
 }

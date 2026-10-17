@@ -4,7 +4,7 @@ CI/CD, GHCR và deploy chung server EziHubb: [hướng dẫn deployment](docs/de
 
 Phản hồi lỗi thống nhất cho frontend, mã lỗi và cách tra cứu log: [API error contract](docs/api-errors.md).
 
-Thay background sản phẩm và tạo nhiều kết quả theo bộ: [Background Studio](docs/background-studio.md).
+Áp hình in/họa tiết lên sản phẩm trong ảnh tham chiếu, giữ nguyên cảnh và tạo nhiều kết quả theo bộ: [Mockup Studio](docs/background-studio.md).
 
 Backend supports Gemini and ShopAIKey with separate providers for text, vision, and image generation. See [AI provider configuration](docs/ai-providers.md) and [.env.example](.env.example) for setup and extension instructions.
 

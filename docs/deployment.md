@@ -124,7 +124,7 @@ Cấu hình R2 CORS cho domain frontend nếu muốn download ảnh/ZIP bằng t
 
 ### Dùng chung bucket R2 với EziHubb
 
-Đặt `R2_BUCKET_NAME` và `R2_PUBLIC_URL` theo bucket/CDN của EziHubb, giữ credential có quyền ghi vào bucket đó. `R2_PUBLIC_URL` là URL gốc CDN của bucket, không thêm prefix ứng dụng. Cấu hình `R2_KEY_PREFIX=gemini-tools` (mặc định) để tất cả ảnh từ Mockup, Idea, Image Editor và Background Studio được ghi vào `gemini-tools/mockups/<uuid>.<extension>`; key và URL public dùng cùng prefix. Prefix không được rỗng, chứa `..`, slash đầu/cuối hoặc segment rỗng; có thể đặt namespace lồng như `apps/gemini-tools`.
+Đặt `R2_BUCKET_NAME` và `R2_PUBLIC_URL` theo bucket/CDN của EziHubb, giữ credential có quyền ghi vào bucket đó. `R2_PUBLIC_URL` là URL gốc CDN của bucket, không thêm prefix ứng dụng. Cấu hình `R2_KEY_PREFIX=gemini-tools` (mặc định) để tất cả ảnh từ Mockup, Idea, Image Editor và Mockup Studio được ghi vào `gemini-tools/mockups/<uuid>.<extension>`; key và URL public dùng cùng prefix. Prefix không được rỗng, chứa `..`, slash đầu/cuối hoặc segment rỗng; có thể đặt namespace lồng như `apps/gemini-tools`.
 
 Khi chuyển từ bucket cũ, chỉ ảnh tạo mới dùng bucket/prefix mới. Giữ bucket cũ để URL đã lưu trong lịch sử trình duyệt tiếp tục truy cập; không tự di chuyển hoặc xóa ảnh cũ. Thêm origin `https://tools.ezihubb.com` với `GET`/`HEAD` vào CORS của bucket dùng chung, giữ nguyên các rule/origin hiện tại của EziHubb. Frontend gọi API để tạo ảnh; không cần cấp CORS `PUT` cho origin Tools.
 

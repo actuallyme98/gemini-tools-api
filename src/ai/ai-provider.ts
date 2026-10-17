@@ -23,9 +23,12 @@ export interface ReferenceImagesParams {
 
 export interface BackgroundReplacementParams {
   imageModel?: string;
+  /** Source product whose surface artwork is transferred without redesign. */
   productImage: AIInputImage;
+  /** Base photo to edit in place, preserving its subjects and scene. */
   backgroundImage: AIInputImage;
-  instructions?: string;
+  /** Complete user-edited prompt, forwarded verbatim without a hidden base. */
+  instructions: string;
   variationIndex?: number;
 }
 

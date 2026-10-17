@@ -1,28 +1,22 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
-import { Transform, Type } from 'class-transformer';
-import {
-  IsInt,
-  IsOptional,
-  IsString,
-  Max,
-  MaxLength,
-  Min,
-} from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+import { IsInt, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 import { ImageProviderSelectionDto } from '../../ai/provider-selection.dto';
 
+export const MAX_BACKGROUND_PROMPT_LENGTH = 12000;
+
 export class ReplaceBackgroundDto extends ImageProviderSelectionDto {
-  @ApiPropertyOptional({
-    maxLength: 2000,
+  @ApiProperty({
+    maxLength: MAX_BACKGROUND_PROMPT_LENGTH,
     description:
-      'Optional lighting or placement preferences; product identity is always preserved.',
+      'Complete user-edited prompt. Forwarded verbatim with the source product first and the reference photo second; no hidden base or variation instructions are appended.',
   })
-  @IsOptional()
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim() : value,
-  )
   @IsString()
-  @MaxLength(2000)
-  instructions?: string;
+  @Matches(/\S/, {
+    message: 'instructions must contain a non-whitespace prompt',
+  })
+  @MaxLength(MAX_BACKGROUND_PROMPT_LENGTH)
+  instructions: string;
 
   @ApiPropertyOptional({ minimum: 1, maximum: 3, default: 1 })
   @Type(() => Number)

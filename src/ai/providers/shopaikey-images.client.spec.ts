@@ -49,55 +49,57 @@ describe('ShopAIKey GPT and Grok image editing', () => {
     },
   );
 
-  it('keeps the product first, all references distinct and background instructions intact across existing tools', async () => {
-    const fetcher = jest
-      .spyOn(global, 'fetch')
-      .mockImplementation(() => Promise.resolve(response()));
-    const provider = new ShopAIKeyProvider(config());
-    await provider.replaceBackground({
-      productImage: original,
-      backgroundImage: reference,
-      instructions: 'soft shadows',
-      variationIndex: 2,
-      imageModel: 'gpt-image-1.5-all',
-    });
-    const background = fetcher.mock.calls[0][1]?.body as FormData;
-    expect(background.get('model')).toBe('gpt-image-1.5-all');
-    expect(background.get('prompt')).toEqual(
-      expect.stringContaining('soft shadows'),
-    );
-    expect(background.get('prompt')).toEqual(
-      expect.stringContaining('Variation 2'),
-    );
-    const files = background.getAll('image[]') as File[];
-    expect(files).toHaveLength(2);
-    expect(Buffer.from(await files[0].arrayBuffer())).toEqual(png);
-    expect(Buffer.from(await files[1].arrayBuffer())).toEqual(
-      Buffer.from('/9j/AA==', 'base64'),
-    );
-    expect(files[1].type).toBe('image/jpeg');
-    expect(background.get('image')).toBeNull();
-    await provider.generateImagesFromReferalImages({
-      productImageBase64: original.base64,
-      productMimeType: original.mimeType,
-      referenceImages: [reference],
-      variationIndex: 3,
-      imageModel: 'grok-imagine-image-2.0',
-    });
-    const edit = fetcher.mock.calls[1][1]?.body as FormData;
-    expect(edit.get('model')).toBe('grok-imagine-image-2.0');
-    expect(edit.get('prompt')).toEqual(expect.stringContaining('variation 3'));
-    expect(edit.getAll('image[]')).toHaveLength(2);
-    await provider.editImage({
-      base64Image: original.base64,
-      mimeType: original.mimeType,
-      prompt: 'Custom edit',
-      imageModel: 'gpt-image-1-mini',
-    });
-    const mockup = fetcher.mock.calls[2][1]?.body as FormData;
-    expect(mockup.get('prompt')).toBe('Custom edit');
-    expect(mockup.get('model')).toBe('gpt-image-1-mini');
-  });
+  it.each(['gpt-image-1.5-all', 'grok-imagine-image-2.0'])(
+    'forwards the final prompt verbatim through %s with ordered source/reference images and leaves other tools independent',
+    async (model) => {
+      const fetcher = jest
+        .spyOn(global, 'fetch')
+        .mockImplementation(() => Promise.resolve(response()));
+      const provider = new ShopAIKeyProvider(config());
+      const instructions =
+        '  Edit only the product on the left.\nUse my final instructions.  ';
+      await provider.replaceBackground({
+        productImage: original,
+        backgroundImage: reference,
+        instructions,
+        variationIndex: 2,
+        imageModel: model,
+      });
+      const background = fetcher.mock.calls[0][1]?.body as FormData;
+      expect(background.get('model')).toBe(model);
+      expect(background.get('prompt')).toBe(instructions);
+      const files = background.getAll('image[]') as File[];
+      expect(files).toHaveLength(2);
+      expect(Buffer.from(await files[0].arrayBuffer())).toEqual(png);
+      expect(Buffer.from(await files[1].arrayBuffer())).toEqual(
+        Buffer.from('/9j/AA==', 'base64'),
+      );
+      expect(files[1].type).toBe('image/jpeg');
+      expect(background.get('image')).toBeNull();
+      await provider.generateImagesFromReferalImages({
+        productImageBase64: original.base64,
+        productMimeType: original.mimeType,
+        referenceImages: [reference],
+        variationIndex: 3,
+        imageModel: 'grok-imagine-image-2.0',
+      });
+      const edit = fetcher.mock.calls[1][1]?.body as FormData;
+      expect(edit.get('model')).toBe('grok-imagine-image-2.0');
+      expect(edit.get('prompt')).toEqual(
+        expect.stringContaining('variation 3'),
+      );
+      expect(edit.getAll('image[]')).toHaveLength(2);
+      await provider.editImage({
+        base64Image: original.base64,
+        mimeType: original.mimeType,
+        prompt: 'Custom edit',
+        imageModel: 'gpt-image-1-mini',
+      });
+      const mockup = fetcher.mock.calls[2][1]?.body as FormData;
+      expect(mockup.get('prompt')).toBe('Custom edit');
+      expect(mockup.get('model')).toBe('gpt-image-1-mini');
+    },
+  );
 
   it('generates one text-only image through the generation endpoint', async () => {
     const fetcher = jest.spyOn(global, 'fetch').mockResolvedValue(response());
@@ -221,6 +223,7 @@ describe('ShopAIKey GPT and Grok image editing', () => {
         productImage: original,
         backgroundImage: original,
         imageModel: 'grok-imagine-image-2.0',
+        instructions: 'Transfer the artwork.',
       }),
     ).rejects.toMatchObject({
       status: 503,

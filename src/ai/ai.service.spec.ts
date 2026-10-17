@@ -39,6 +39,7 @@ function provider(id: string, capabilities: AIProvider['capabilities']) {
 
 describe('AIService provider routing', () => {
   const backgroundParams = {
+    instructions: 'Transfer the artwork onto the reference product.',
     productImage: { base64: 'cHJvZHVjdA==', mimeType: 'image/png' },
     backgroundImage: { base64: 'c2NlbmU=', mimeType: 'image/png' },
     variationIndex: 1,

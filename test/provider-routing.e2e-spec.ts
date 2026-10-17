@@ -121,7 +121,9 @@ describe('Client-selected provider routing', () => {
     for (const [key, value] of Object.entries(fields))
       req = req.field(key, value);
     if (provider !== undefined) req = req.field('provider', provider);
-    if (endpoint === 'backgrounds/replace')
+    if (endpoint === 'backgrounds/replace') {
+      if (!Object.prototype.hasOwnProperty.call(fields, 'instructions'))
+        req = req.field('instructions', 'Transfer artwork to the reference.');
       return req
         .attach('productImage', png, {
           filename: 'product.png',
@@ -131,6 +133,7 @@ describe('Client-selected provider routing', () => {
           filename: 'background.png',
           contentType: 'image/png',
         });
+    }
     return req.attach(
       endpoint.endsWith('referal-images') ? 'productImage' : 'image',
       png,
@@ -399,7 +402,7 @@ describe('Client-selected provider routing', () => {
       expect(upload).not.toHaveBeenCalled();
     },
   );
-  it('replaces one background using only the selected provider and stores the returned MIME type', async () => {
+  it('edits one reference photo using only the selected provider and stores the returned MIME type', async () => {
     const jpeg = Buffer.from('ffd8ffe000104a464946', 'hex');
     shopaikey.replaceBackground.mockResolvedValueOnce({
       buffer: jpeg,
@@ -428,7 +431,7 @@ describe('Client-selected provider routing', () => {
         base64: jpeg.toString('base64'),
         mimeType: 'image/jpeg',
       },
-      instructions: 'soft shadows',
+      instructions: '  soft shadows  ',
       variationIndex: 2,
     });
     expect(upload).toHaveBeenCalledWith(jpeg, 'image/jpeg');
@@ -450,22 +453,55 @@ describe('Client-selected provider routing', () => {
       expect(upload).not.toHaveBeenCalled();
     },
   );
+  it.each(['', '   \n\t', 'x'.repeat(12001)])(
+    'rejects empty or oversized final prompts before paid work (%#)',
+    async (instructions) => {
+      await post('backgrounds/replace', { instructions }, 'gemini').expect(400);
+      expect(gemini.replaceBackground).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+    },
+  );
+  it('accepts a complete prompt longer than the old limit and preserves its text', async () => {
+    const instructions =
+      '  Edit IMAGE 2.\n' + 'Preserve the source artwork. '.repeat(120) + '  ';
+    await post('backgrounds/replace', { instructions }, 'gemini').expect(201);
+    expect(gemini.replaceBackground).toHaveBeenCalledWith(
+      expect.objectContaining({ instructions }),
+    );
+  });
+  it('requires a final prompt instead of silently substituting a hidden base', async () => {
+    await request(app.getHttpServer() as Parameters<typeof request>[0])
+      .post('/api/backgrounds/replace')
+      .attach('productImage', png, {
+        filename: 'product.png',
+        contentType: 'image/png',
+      })
+      .attach('backgroundImage', png, {
+        filename: 'reference.png',
+        contentType: 'image/png',
+      })
+      .expect(400);
+    expect(gemini.replaceBackground).not.toHaveBeenCalled();
+    expect(upload).not.toHaveBeenCalled();
+  });
   it('names the missing background input and rejects corrupt reference images before paid work', async () => {
     const response = await request(
       app.getHttpServer() as Parameters<typeof request>[0],
     )
       .post('/api/backgrounds/replace')
+      .field('instructions', 'Transfer artwork to the reference.')
       .attach('productImage', png, {
         filename: 'product.png',
         contentType: 'image/png',
       })
       .expect(400);
     expect(response.body).toMatchObject({
-      message: 'Background image is required',
+      message: 'Reference image is required',
       requestId: expect.any(String) as unknown,
     });
     await request(app.getHttpServer() as Parameters<typeof request>[0])
       .post('/api/backgrounds/replace')
+      .field('instructions', 'Transfer artwork to the reference.')
       .attach('productImage', png, {
         filename: 'product.png',
         contentType: 'image/png',

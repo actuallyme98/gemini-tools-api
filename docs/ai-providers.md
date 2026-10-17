@@ -35,7 +35,7 @@ Gemini dùng native `generateContent`; GPT Image và Grok Imagine dùng [Images 
 
 Grok nhận tối đa 5 ảnh đầu vào (gồm sản phẩm gốc); yêu cầu nhiều hơn bị chặn trước khi gọi endpoint trả phí. Danh sách model không bảo đảm nhóm tài khoản có kênh đang phục vụ: lỗi `No available channel` trả `AI_MODEL_UNAVAILABLE`, không retry hoặc tự đổi model; frontend tạm dừng bộ background còn lại. Có thể chọn model khác hoặc yêu cầu ShopAIKey mở kênh/nhóm phù hợp.
 
-Các endpoint tạo mockup, tạo ý tưởng, tạo ảnh reference và thay background nhận thêm trường multipart `imageModel`. API kiểm tra lựa chọn trước các bước sinh text/ảnh trả phí và chỉ chấp nhận model tương thích trong catalog của provider. Model không hợp lệ trả `AI_IMAGE_MODEL_INVALID`; provider không hỗ trợ lựa chọn model trả `AI_IMAGE_MODEL_UNSUPPORTED`. Bỏ qua trường này vẫn dùng model ảnh cấu hình ở backend.
+Các endpoint tạo mockup, tạo ý tưởng, tạo ảnh reference và áp hình in vào ảnh tham chiếu nhận thêm trường multipart `imageModel`. API kiểm tra lựa chọn trước các bước sinh text/ảnh trả phí và chỉ chấp nhận model tương thích trong catalog của provider. Model không hợp lệ trả `AI_IMAGE_MODEL_INVALID`; provider không hỗ trợ lựa chọn model trả `AI_IMAGE_MODEL_UNSUPPORTED`. Bỏ qua trường này vẫn dùng model ảnh cấu hình ở backend.
 
 Client lưu model ShopAIKey riêng trên trình duyệt; đổi sang Gemini không gửi model ShopAIKey. Lỗi tải catalog hoặc model đã lưu bị gỡ không tự đổi sang model khác; cần tải lại hoặc chọn model hợp lệ. Một batch giữ provider/model lúc bắt đầu; retry dùng lựa chọn hiện tại. Phân tích ảnh và text không dùng model ảnh đã chọn.
 

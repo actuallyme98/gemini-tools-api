@@ -196,7 +196,7 @@ export class AIService implements OnModuleInit {
       throw new ApiError(
         400,
         'AI_CAPABILITY_UNAVAILABLE',
-        `Provider ${provider.name || provider.id} chưa hỗ trợ thay background từ ảnh tham chiếu. Hãy chọn provider khác.`,
+        `Provider ${provider.name || provider.id} chưa hỗ trợ áp hình in/họa tiết vào ảnh tham chiếu. Hãy chọn provider khác.`,
         { provider: provider.id },
       );
     await this.validateImageModel(providerId, params.imageModel);

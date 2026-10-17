@@ -13,7 +13,7 @@ export class BackgroundService {
   async replace(params: {
     productImage: Express.Multer.File;
     backgroundImage: Express.Multer.File;
-    instructions?: string;
+    instructions: string;
     variationIndex: number;
     provider?: string;
     imageModel?: string;

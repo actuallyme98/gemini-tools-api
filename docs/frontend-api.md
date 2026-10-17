@@ -13,7 +13,7 @@ Các endpoint POST nhận multipart/form-data:
 | /ideas/generate-images-from-referal-images | productImage, referenceImages (tối đa 10), variations (1–10, mặc định 1) | string[] |
 | /backgrounds/replace | productImage, backgroundImage, variationIndex (1–3, mặc định 1), instructions (tùy chọn, ≤2000 ký tự) | { url, mimeType } |
 
-[Background Studio](background-studio.md) tạo nhiều background bằng hàng đợi từng cặp ảnh và giữ kết quả thành công khi thử lại.
+[Mockup Studio](background-studio.md) áp hình in/họa tiết từ sản phẩm gốc lên sản phẩm trong ảnh tham chiếu, giữ nguyên cảnh; xử lý hàng đợi từng cặp ảnh và giữ kết quả thành công khi thử lại.
 
 Các endpoint tạo/chỉnh ảnh nhận thêm `imageModel` (ID tối đa 128 ký tự từ `GET /api/ai/providers/shopaikey/image-models`); bỏ qua dùng model cấu hình. Model được kiểm tra trước bước trả phí, giữ cố định cho cả batch. `GET /api/ai/providers` có `textRouting` khi bật text VyceAI ưu tiên / ShopAIKey dự phòng. Xem [cấu hình AI](ai-providers.md).
 

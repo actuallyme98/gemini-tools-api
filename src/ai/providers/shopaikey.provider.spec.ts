@@ -132,6 +132,7 @@ describe('ShopAIKey native GenAI provider', () => {
       productImage: { base64: 'cHJvZHVjdA==', mimeType: 'image/png' },
       backgroundImage: { base64: 'YmFja2dyb3VuZA==', mimeType: 'image/png' },
       imageModel: 'gemini-nano-banana-2.1',
+      instructions: 'Transfer the artwork.',
     });
     expect(provider.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -182,6 +183,7 @@ describe('ShopAIKey native GenAI provider', () => {
       productImage: { base64: 'aW1hZ2U=', mimeType: 'image/png' },
       backgroundImage: { base64: 'aW1hZ2U=', mimeType: 'image/png' },
       imageModel: 'background-image',
+      instructions: 'Transfer the artwork.',
     });
     expect(provider.create).toHaveBeenLastCalledWith(
       expect.objectContaining({ model: 'background-image' }),
@@ -205,7 +207,7 @@ describe('ShopAIKey native GenAI provider', () => {
     });
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
-  it('sends the original product and a single background as separate roles, preserving output MIME type', async () => {
+  it('sends the artwork source and base photo with distinct labels, preserving output MIME type', async () => {
     const provider = createProvider();
     await provider.onModuleInit();
     provider.create.mockResolvedValue({
@@ -230,7 +232,7 @@ describe('ShopAIKey native GenAI provider', () => {
           mimeType: 'image/jpeg',
         },
         variationIndex: 2,
-        instructions: 'soft shadows',
+        instructions: 'Only edit the product on the left',
       }),
     ).toEqual({ buffer: Buffer.from('image'), mimeType: 'image/webp' });
     expect(provider.create).toHaveBeenCalledTimes(1);
@@ -241,21 +243,47 @@ describe('ShopAIKey native GenAI provider', () => {
         {
           role: 'user',
           parts: [
-            { text: expect.stringContaining('soft shadows') as unknown },
-            { text: expect.stringContaining('IMAGE 1') as unknown },
+            { text: 'Only edit the product on the left' },
             { inlineData: { mimeType: 'image/png', data: 'cHJvZHVjdA==' } },
-            { text: expect.stringContaining('IMAGE 2') as unknown },
             { inlineData: { mimeType: 'image/jpeg', data: 'c2NlbmU=' } },
           ],
         },
       ],
     });
-    const call = provider.create.mock.calls[0] as [
-      { contents: [{ parts: [{ text: string }] }] },
-    ];
-    expect(call[0].contents[0].parts[0].text).toContain('BACKGROUND reference');
-    expect(call[0].contents[0].parts[0].text).toContain('Do not redesign');
   });
+  it.each([
+    [
+      'Gemini',
+      () =>
+        new TestGeminiProvider(
+          new ConfigService({ GEMINI_API_KEY: 'test-key' }),
+        ),
+    ],
+    ['ShopAIKey native', () => createProvider()],
+  ] as const)(
+    '%s forwards the final edited prompt verbatim without hidden base rules or variation text',
+    async (_name, create) => {
+      const provider = create();
+      await provider.onModuleInit();
+      provider.create.mockResolvedValue(imageResponse);
+      const instructions =
+        '  Change the print size as requested.\nKeep this line and spacing.  ';
+      await provider.replaceBackground({
+        productImage: { base64: 'cHJvZHVjdA==', mimeType: 'image/png' },
+        backgroundImage: { base64: 'c2NlbmU=', mimeType: 'image/png' },
+        instructions,
+        variationIndex: 3,
+      });
+      const request = provider.create.mock.calls[0] as [
+        { contents: [{ parts: [{ text: string }] }] },
+      ];
+      expect(request[0].contents[0].parts).toEqual([
+        { text: instructions },
+        { inlineData: { mimeType: 'image/png', data: 'cHJvZHVjdA==' } },
+        { inlineData: { mimeType: 'image/png', data: 'c2NlbmU=' } },
+      ]);
+    },
+  );
   it('reports content safety blocks instead of a misleading invalid JSON or missing image error', async () => {
     const provider = createProvider();
     await provider.onModuleInit();

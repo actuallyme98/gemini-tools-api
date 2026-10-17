@@ -21,7 +21,10 @@ import {
   imageModelSelectionSchema,
 } from '../ai/provider-selection.dto';
 import { BackgroundService } from './background.service';
-import { ReplaceBackgroundDto } from './dto/replace-background.dto';
+import {
+  MAX_BACKGROUND_PROMPT_LENGTH,
+  ReplaceBackgroundDto,
+} from './dto/replace-background.dto';
 
 @Controller('backgrounds')
 export class BackgroundController {
@@ -30,7 +33,7 @@ export class BackgroundController {
   @Post('replace')
   @ApiOperation({
     summary:
-      'Replace a product background using one background reference image. One request produces one result; clients can queue multiple pairs.',
+      'Edit a reference photo using the source product and the complete user-edited prompt. One request produces one edited photo; no hidden prompt rules are appended.',
   })
   @UseInterceptors(
     FileFieldsInterceptor(
@@ -61,13 +64,26 @@ export class BackgroundController {
   @ApiBody({
     schema: {
       type: 'object',
-      required: ['productImage', 'backgroundImage'],
+      required: ['productImage', 'backgroundImage', 'instructions'],
       properties: {
-        productImage: { type: 'string', format: 'binary' },
-        backgroundImage: { type: 'string', format: 'binary' },
+        productImage: {
+          type: 'string',
+          format: 'binary',
+          description: 'Source product showing the exact artwork to transfer.',
+        },
+        backgroundImage: {
+          type: 'string',
+          format: 'binary',
+          description:
+            'Reference photo to edit, supplied as IMAGE 2 after the source product.',
+        },
         provider: providerSelectionSchema,
         imageModel: imageModelSelectionSchema,
-        instructions: { type: 'string', maxLength: 2000 },
+        instructions: {
+          type: 'string',
+          maxLength: MAX_BACKGROUND_PROMPT_LENGTH,
+          description: 'Final prompt edited by the user, forwarded verbatim.',
+        },
         variationIndex: { type: 'integer', minimum: 1, maximum: 3, default: 1 },
       },
     },
@@ -87,7 +103,7 @@ export class BackgroundController {
       productImage: requireImage(files?.productImage?.[0], 'Product image'),
       backgroundImage: requireImage(
         files?.backgroundImage?.[0],
-        'Background image',
+        'Reference image',
       ),
       instructions: body.instructions,
       variationIndex: body.variationIndex,

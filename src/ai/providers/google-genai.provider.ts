@@ -217,8 +217,8 @@ export abstract class GoogleGenAIProvider implements AIProvider {
             {
               text: params.instructions,
             },
-            imagePart(params.productImage),
             imagePart(params.backgroundImage),
+            imagePart(params.productImage),
           ],
         },
       ],

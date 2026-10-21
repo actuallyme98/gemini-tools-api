@@ -3,10 +3,11 @@ import { AIModule } from '../ai/ai.module';
 import { R2Module } from '../r2/r2.module';
 import { BackgroundController } from './background.controller';
 import { BackgroundService } from './background.service';
+import { BackgroundJobsService } from './background-jobs.service';
 
 @Module({
   imports: [AIModule, R2Module],
   controllers: [BackgroundController],
-  providers: [BackgroundService],
+  providers: [BackgroundService, BackgroundJobsService],
 })
 export class BackgroundModule {}

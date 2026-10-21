@@ -1,15 +1,33 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsInt, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
+import {
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  Matches,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
 import { ImageProviderSelectionDto } from '../../ai/provider-selection.dto';
 
 export const MAX_BACKGROUND_PROMPT_LENGTH = 12000;
 
 export class ReplaceBackgroundDto extends ImageProviderSelectionDto {
+  @ApiPropertyOptional({
+    type: String,
+    enum: ['true', 'false'],
+    description: 'Return a short-lived job immediately and poll its result.',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  async?: string;
+
   @ApiProperty({
     maxLength: MAX_BACKGROUND_PROMPT_LENGTH,
     description:
-      'Complete user-edited prompt. Forwarded verbatim with the source product first and the reference photo second; no hidden base or variation instructions are appended.',
+      'Final prompt, forwarded verbatim with the reference photo (edit target) first and source product second.',
   })
   @IsString()
   @Matches(/\S/, {

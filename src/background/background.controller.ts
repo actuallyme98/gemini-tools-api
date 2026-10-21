@@ -1,6 +1,10 @@
 import {
   Body,
   Controller,
+  Get,
+  Header,
+  Param,
+  ParseUUIDPipe,
   Post,
   Res,
   UploadedFiles,
@@ -12,8 +16,10 @@ import {
   ApiConsumes,
   ApiOperation,
   ApiCreatedResponse,
+  ApiAcceptedResponse,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { multerConfig, requireImage } from '../common/multer.config';
 import { requestSignal } from '../common/request-signal';
 import {
@@ -21,6 +27,7 @@ import {
   imageModelSelectionSchema,
 } from '../ai/provider-selection.dto';
 import { BackgroundService } from './background.service';
+import { BackgroundJobsService } from './background-jobs.service';
 import {
   MAX_BACKGROUND_PROMPT_LENGTH,
   ReplaceBackgroundDto,
@@ -28,7 +35,19 @@ import {
 
 @Controller('backgrounds')
 export class BackgroundController {
-  constructor(private readonly backgrounds: BackgroundService) {}
+  constructor(
+    private readonly backgrounds: BackgroundService,
+    private readonly jobs: BackgroundJobsService,
+  ) {}
+
+  @Get('jobs/:jobId')
+  @Header('Cache-Control', 'no-store')
+  @ApiOperation({
+    summary: 'Poll an image job without repeating image generation.',
+  })
+  getJob(@Param('jobId', new ParseUUIDPipe()) jobId: string) {
+    return this.jobs.get(jobId);
+  }
 
   @Post('replace')
   @ApiOperation({
@@ -43,11 +62,15 @@ export class BackgroundController {
       ],
       {
         ...multerConfig,
-        limits: { ...multerConfig.limits, files: 2, fields: 5 },
+        limits: { ...multerConfig.limits, files: 2, fields: 6 },
       },
     ),
   )
   @ApiConsumes('multipart/form-data')
+  @ApiAcceptedResponse({
+    description:
+      'With async=true: {jobId, requestId, state}. Poll GET /api/backgrounds/jobs/:jobId.',
+  })
   @ApiCreatedResponse({
     schema: {
       type: 'object',
@@ -76,7 +99,7 @@ export class BackgroundController {
           type: 'string',
           format: 'binary',
           description:
-            'Reference photo to edit, supplied as IMAGE 2 after the source product.',
+            'Reference photo to edit, supplied as IMAGE 1 before the source product (IMAGE 2).',
         },
         provider: providerSelectionSchema,
         imageModel: imageModelSelectionSchema,
@@ -86,6 +109,7 @@ export class BackgroundController {
           description: 'Final prompt edited by the user, forwarded verbatim.',
         },
         variationIndex: { type: 'integer', minimum: 1, maximum: 3, default: 1 },
+        async: { type: 'string', enum: ['true', 'false'] },
       },
     },
   })
@@ -100,7 +124,7 @@ export class BackgroundController {
     @Body() body: ReplaceBackgroundDto,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const result = await this.backgrounds.replace({
+    const params = {
       productImage: requireImage(files?.productImage?.[0], 'Product image'),
       backgroundImage: requireImage(
         files?.backgroundImage?.[0],
@@ -110,6 +134,20 @@ export class BackgroundController {
       variationIndex: body.variationIndex,
       provider: body.provider,
       imageModel: body.imageModel,
+    };
+    if (body.async === 'true') {
+      const requestId = String(
+        response.getHeader('X-Request-Id') || randomUUID(),
+      );
+      const job = this.jobs.create(
+        () => this.backgrounds.replace(params),
+        requestId,
+      );
+      response.status(202);
+      return job;
+    }
+    const result = await this.backgrounds.replace({
+      ...params,
       signal: requestSignal(response),
     });
     const requestId = response.getHeader('X-Request-Id');

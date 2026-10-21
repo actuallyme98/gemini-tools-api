@@ -11,7 +11,8 @@ Các endpoint POST nhận multipart/form-data:
 | /ideas/analyze-product | image | ImageAnalysis |
 | /ideas/generate-ideas | image, basePrompt, count (1–12, mặc định 3) | [{url,prompt}] |
 | /ideas/generate-images-from-referal-images | productImage, referenceImages (tối đa 10), variations (1–10, mặc định 1) | string[] |
-| /backgrounds/replace | productImage, backgroundImage, variationIndex (1–3, mặc định 1), instructions (tùy chọn, ≤2000 ký tự) | { url, mimeType } |
+| /backgrounds/replace | productImage, backgroundImage, variationIndex (1–3), instructions (bắt buộc, ≤12000 ký tự), async=true | HTTP 202 { jobId, requestId, state }; xem hợp đồng Mockup Studio |
+| /backgrounds/jobs/:jobId (GET) | UUID tác vụ | { state, result?, error?, requestId } |
 
 [Mockup Studio](background-studio.md) áp hình in/họa tiết từ sản phẩm gốc lên sản phẩm trong ảnh tham chiếu, giữ nguyên cảnh; xử lý hàng đợi từng cặp ảnh và giữ kết quả thành công khi thử lại.
 

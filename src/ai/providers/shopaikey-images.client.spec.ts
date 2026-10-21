@@ -49,8 +49,12 @@ describe('ShopAIKey GPT and Grok image editing', () => {
     },
   );
 
-  it.each(['gpt-image-1.5-all', 'grok-imagine-image-2.0'])(
-    'forwards the final prompt verbatim through %s with ordered source/reference images and leaves other tools independent',
+  it.each([
+    'gpt-image-1.5-all',
+    'gpt-image-2.5-sunburst-all',
+    'grok-imagine-image-2.0',
+  ])(
+    'forwards the final prompt verbatim through %s with the edit target first and design source second, leaving other tools independent',
     async (model) => {
       const fetcher = jest
         .spyOn(global, 'fetch')
@@ -70,11 +74,11 @@ describe('ShopAIKey GPT and Grok image editing', () => {
       expect(background.get('prompt')).toBe(instructions);
       const files = background.getAll('image[]') as File[];
       expect(files).toHaveLength(2);
-      expect(Buffer.from(await files[0].arrayBuffer())).toEqual(png);
-      expect(Buffer.from(await files[1].arrayBuffer())).toEqual(
+      expect(Buffer.from(await files[0].arrayBuffer())).toEqual(
         Buffer.from('/9j/AA==', 'base64'),
       );
-      expect(files[1].type).toBe('image/jpeg');
+      expect(files[0].type).toBe('image/jpeg');
+      expect(Buffer.from(await files[1].arrayBuffer())).toEqual(png);
       expect(background.get('image')).toBeNull();
       await provider.generateImagesFromReferalImages({
         productImageBase64: original.base64,

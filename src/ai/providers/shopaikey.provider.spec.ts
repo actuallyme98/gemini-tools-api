@@ -147,7 +147,7 @@ describe('ShopAIKey native GenAI provider', () => {
       request[0].contents[0].parts
         .filter((part) => part.inlineData)
         .map((part) => part.inlineData?.data),
-    ).toEqual(['cHJvZHVjdA==', 'YmFja2dyb3VuZA==']);
+    ).toEqual(['YmFja2dyb3VuZA==', 'cHJvZHVjdA==']);
   });
   it('keeps per-request image models independent and preserves the default', async () => {
     const provider = createProvider();
@@ -244,8 +244,8 @@ describe('ShopAIKey native GenAI provider', () => {
           role: 'user',
           parts: [
             { text: 'Only edit the product on the left' },
-            { inlineData: { mimeType: 'image/png', data: 'cHJvZHVjdA==' } },
             { inlineData: { mimeType: 'image/jpeg', data: 'c2NlbmU=' } },
+            { inlineData: { mimeType: 'image/png', data: 'cHJvZHVjdA==' } },
           ],
         },
       ],
@@ -279,8 +279,8 @@ describe('ShopAIKey native GenAI provider', () => {
       ];
       expect(request[0].contents[0].parts).toEqual([
         { text: instructions },
-        { inlineData: { mimeType: 'image/png', data: 'cHJvZHVjdA==' } },
         { inlineData: { mimeType: 'image/png', data: 'c2NlbmU=' } },
+        { inlineData: { mimeType: 'image/png', data: 'cHJvZHVjdA==' } },
       ]);
     },
   );

@@ -134,12 +134,14 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
     provider = 'gemini',
     model?: string,
     source = png,
+    asynchronous = false,
   ) => {
     let req = request(app.getHttpServer() as Parameters<typeof request>[0])
       .post('/api/backgrounds/replace')
       .field('provider', provider)
       .field('instructions', instructions);
     if (model) req = req.field('imageModel', model);
+    if (asynchronous) req = req.field('async', 'true');
     return req
       .attach('productImage', source, {
         filename: 'source.png',
@@ -166,6 +168,69 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
       .map((line) => JSON.parse(line) as Record<string, unknown>)
       .filter((event) => event.requestId === id);
   };
+
+  it('finishes detached image work after HTTP 202 and keeps the original audit context', async () => {
+    let finish!: (value: typeof result) => void;
+    let markStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      markStarted = resolve;
+    });
+    generate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+          markStarted();
+        }),
+    );
+    const accepted = await post(
+      'Keep the reference scene. No watermark.',
+      'gemini',
+      undefined,
+      png,
+      true,
+    ).expect(202);
+    const acceptedBody = accepted.body as { requestId: string; jobId: string };
+    const id = acceptedBody.requestId;
+    expect(id).toBe(accepted.headers['x-request-id']);
+    const url = '/api/backgrounds/jobs/' + acceptedBody.jobId;
+    await request(app.getHttpServer() as Parameters<typeof request>[0])
+      .get(url)
+      .expect(200)
+      .expect(({ body }) => {
+        expect((body as { state: string }).state).toBe('pending');
+      });
+    await started;
+    finish(result);
+    let completed: request.Response | undefined;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      completed = await request(
+        app.getHttpServer() as Parameters<typeof request>[0],
+      )
+        .get(url)
+        .expect(200);
+      if ((completed.body as { state: string }).state === 'done') break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+    expect(completed?.body).toMatchObject({
+      state: 'done',
+      result: { requestId: id, mimeType: 'image/png' },
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    const records = await events(id);
+    const names = records.map((event) => event.event);
+    expect(names.indexOf('http_completed')).toBeLessThan(
+      names.indexOf('generated_image'),
+    );
+    expect(names).toContain('background_job_completed');
+    const parts = records.find((event) => event.event === 'ai_request')
+      .parts as { file?: string; text?: string }[];
+    expect(parts[0].text).toBe('Keep the reference scene. No watermark.');
+    expect(await fs.readFile(path.join(directory, parts[1].file))).toEqual(
+      jpeg,
+    );
+    expect(await fs.readFile(path.join(directory, parts[2].file))).toEqual(png);
+  });
   it.each([
     ['gemini', undefined, 'gemini-3.1-flash-image'],
     [
@@ -200,10 +265,10 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
       ]);
       expect(parts[0].text).toBe(prompt);
       expect(await fs.readFile(path.join(directory, parts[1].file))).toEqual(
-        png,
+        jpeg,
       );
       expect(await fs.readFile(path.join(directory, parts[2].file))).toEqual(
-        jpeg,
+        png,
       );
       expect(
         records.find((event) => event.event === 'generated_image'),
@@ -298,6 +363,51 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
     expect(send).toHaveBeenCalledTimes(1);
   });
 
+  it('returns a storage failure from an async job with its original trace and no regeneration', async () => {
+    send.mockRejectedValueOnce({
+      name: 'AccessDenied',
+      $metadata: { httpStatusCode: 403 },
+    });
+    const accepted = await post(
+      'Keep the reference scene.',
+      'gemini',
+      undefined,
+      png,
+      true,
+    ).expect(202);
+    const body = accepted.body as { requestId: string; jobId: string };
+    let status:
+      | {
+          state: string;
+          error?: { requestId: string; code: string; statusCode: number };
+        }
+      | undefined;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const poll = await request(
+        app.getHttpServer() as Parameters<typeof request>[0],
+      )
+        .get('/api/backgrounds/jobs/' + body.jobId)
+        .expect(200)
+        .expect('Cache-Control', 'no-store');
+      status = poll.body as typeof status;
+      if (status?.state === 'failed') break;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(status).toMatchObject({
+      state: 'failed',
+      error: {
+        requestId: body.requestId,
+        code: 'STORAGE_ACCESS_DENIED',
+        statusCode: 502,
+      },
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(
+      (await events(body.requestId)).map((event) => event.event),
+    ).toContain('background_job_failed');
+  });
+
   it('does not mix images or prompts across concurrent requests', async () => {
     const responses = await Promise.all(
       [0, 1, 2].map((index) =>
@@ -317,7 +427,7 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
       const parts = records.find((event) => event.event === 'ai_request')
         .parts as { text?: string; file?: string }[];
       expect(parts[0].text).toBe('Concurrent prompt ' + index);
-      expect(await fs.readFile(path.join(directory, parts[1].file))).toEqual(
+      expect(await fs.readFile(path.join(directory, parts[2].file))).toEqual(
         Buffer.concat([png, Buffer.from([index])]),
       );
     }

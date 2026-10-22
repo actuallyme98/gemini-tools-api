@@ -4,6 +4,19 @@ export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string()
     .valid('development', 'production', 'test')
     .default('development'),
+  AGENT_ENABLED: Joi.boolean().default(false),
+  MONGODB_URI: Joi.string()
+    .pattern(/^mongodb(?:\+srv)?:\/\//)
+    .when('AGENT_ENABLED', { is: true, then: Joi.required() }),
+  MONGODB_DATABASE: Joi.string()
+    .pattern(/^[a-zA-Z0-9_-]{1,64}$/)
+    .default('lcgmedia'),
+  AGENT_ASSET_ENCRYPTION_KEY: Joi.string()
+    .pattern(/^[a-fA-F0-9]{64}$/)
+    .when('AGENT_ENABLED', { is: true, then: Joi.required() }),
+  AGENT_WORKER_ENABLED: Joi.boolean().default(true),
+  AGENT_CONCURRENCY: Joi.number().integer().min(1).max(6).default(3),
+  AGENT_SESSION_HOURS: Joi.number().integer().min(1).max(168).default(24),
 
   // Provider IDs are resolved against the registry by AIService at startup.
   AI_PROVIDER: Joi.string().default('shopaikey'),

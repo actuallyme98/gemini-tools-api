@@ -1,6 +1,10 @@
 import { Injectable, Optional } from '@nestjs/common';
 import { AuditLogService } from '../audit/audit-log.service';
-import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  GetObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { randomUUID } from 'crypto';
 import { ConfigService } from '@nestjs/config';
 import { externalServiceError } from '../common/external-service-error';
@@ -26,6 +30,50 @@ export class R2Service {
         secretAccessKey: this.config.get<string>('R2_SECRET_ACCESS_KEY'),
       },
     });
+  }
+
+  async putAgentObject(
+    owner: string,
+    id: string,
+    encrypted: Buffer,
+  ): Promise<string> {
+    const key = `${this.keyPrefix}/agent/${owner}/${id}.bin`;
+    try {
+      await this.client.send(
+        new PutObjectCommand({
+          Bucket: this.config.get<string>('R2_BUCKET_NAME'),
+          Key: key,
+          Body: encrypted,
+          ContentType: 'application/octet-stream',
+          CacheControl: 'private, no-store',
+        }),
+      );
+    } catch (error) {
+      throw externalServiceError('storage', error);
+    }
+    return key;
+  }
+
+  async getAgentObject(key: string): Promise<Buffer> {
+    if (!key.startsWith(`${this.keyPrefix}/agent/`))
+      throw new Error('Invalid agent object key');
+    try {
+      const response = await this.client.send(
+        new GetObjectCommand({
+          Bucket: this.config.get<string>('R2_BUCKET_NAME'),
+          Key: key,
+        }),
+      );
+      if (
+        !response.Body ||
+        !response.ContentLength ||
+        response.ContentLength > 32 * 1024 * 1024
+      )
+        throw new Error('Invalid agent object size');
+      return Buffer.from(await response.Body.transformToByteArray());
+    } catch (error) {
+      throw externalServiceError('storage', error);
+    }
   }
 
   async upload(

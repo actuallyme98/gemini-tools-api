@@ -1,7 +1,7 @@
 FROM node:22-alpine AS build
 WORKDIR /app
 COPY package*.json ./
-RUN npm ci
+RUN MONGOMS_DISABLE_POSTINSTALL=1 npm ci
 COPY . .
 RUN npm run build
 
@@ -17,6 +17,7 @@ COPY --from=production-deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package*.json ./
 COPY --chown=node:node scripts/read-audit-logs.cjs ./scripts/read-audit-logs.cjs
+COPY --chown=node:node scripts/agent-user.cjs ./scripts/agent-user.cjs
 RUN mkdir -p /app/logs && chown node:node /app/logs && chmod 700 /app/logs
 USER node
 EXPOSE 5177

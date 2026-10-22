@@ -1,0 +1,44 @@
+name: gemini-tools-db
+
+services:
+  pod-mongodb:
+    image: mongo:7-jammy
+    restart: unless-stopped
+    env_file: ${DEPLOY_PATH:?Set DEPLOY_PATH}/.env.agent-mongodb
+    command:
+      ['mongod', '--auth', '--bind_ip_all', '--wiredTigerCacheSizeGB', '0.256']
+    volumes:
+      - agent-mongodb:/data/db
+      - ${DEPLOY_PATH}/deploy/agent-mongodb-init.js:/docker-entrypoint-initdb.d/10-agent.js:ro
+    networks:
+      - tools
+    mem_limit: 768m
+    cpus: 0.5
+    stop_grace_period: 60s
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - >-
+          const d = db.getSiblingDB(process.env.MONGO_INITDB_DATABASE);
+          d.auth(process.env.MONGODB_APP_USER, process.env.MONGODB_APP_PASSWORD);
+          d.getCollection('agent_records').findOne();
+      interval: 15s
+      timeout: 10s
+      start_period: 40s
+      retries: 5
+    logging:
+      driver: json-file
+      options:
+        max-size: '5m'
+        max-file: '3'
+
+volumes:
+  agent-mongodb:
+
+networks:
+  tools:
+    external: true
+    name: gemini-tools_default

@@ -405,3 +405,6 @@ scripts/.deploy-config
 dist
 .webpack
 .serverless/**/*.zip
+
+# Local CodeGraph index
+.codegraph/

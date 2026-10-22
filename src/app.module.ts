@@ -8,6 +8,7 @@ import { APP_FILTER } from '@nestjs/core';
 import { ApiExceptionFilter } from './common/api-exception.filter';
 import { BackgroundModule } from './background/background.module';
 import { AuditModule } from './audit/audit.module';
+import { AgentModule } from './agent/agent.module';
 
 @Module({
   controllers: [HealthController],
@@ -21,6 +22,7 @@ import { AuditModule } from './audit/audit.module';
     MockupModule,
     IdeaModule,
     BackgroundModule,
+    AgentModule,
   ],
 })
 export class AppModule {}

@@ -19,7 +19,7 @@ case "$SSH_KEY" in /*|[A-Za-z]:/*) ;; *) SSH_KEY="$REPO_DIR/$SSH_KEY" ;; esac
 SSH=(ssh -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$SERVER_USER@$SERVER_IP")
 INCOMING="$("${SSH[@]}" "umask 077; mkdir -p '$DEPLOY_PATH'; mktemp -d '$DEPLOY_PATH/.bootstrap.XXXXXXXX'")"
 [[ "$INCOMING" == "$DEPLOY_PATH"/.bootstrap.* && "$INCOMING" =~ ^/[A-Za-z0-9_./-]+$ ]] || exit 2
-tar -C "$REPO_DIR" -czf - deploy/compose.production.yml deploy/deploy-server.sh deploy/nginx-gemini-tools.conf deploy/nginx-lcgmedia.conf |
+tar -C "$REPO_DIR" -czf - deploy/compose.production.yml deploy/deploy-server.sh deploy/nginx-gemini-tools.conf deploy/nginx-lcgmedia.conf deploy/compose.agent-mongodb.yml deploy/agent-mongodb-init.js |
   "${SSH[@]}" "tar -xzf - -C '$INCOMING'"
 if ! "${SSH[@]}" "test -f '$DEPLOY_PATH/.env'"; then
   # Stream over SSH with a restrictive umask; never print or commit credentials.
@@ -32,6 +32,8 @@ INCOMING="$2"
 mkdir -p "$ROOT/deploy"
 if [[ ! -f "$ROOT/.env" ]]; then mv "$INCOMING/.env" "$ROOT/.env"; fi
 chmod 600 "$ROOT/.env"
+install -m 644 "$INCOMING/deploy/compose.agent-mongodb.yml" "$ROOT/deploy/compose.agent-mongodb.yml"
+install -m 644 "$INCOMING/deploy/agent-mongodb-init.js" "$ROOT/deploy/agent-mongodb-init.js"
 if [[ ! -f "$ROOT/deploy/deploy-server.sh" || ! -f "$ROOT/.images.env" ]]; then
   install -m 700 "$INCOMING/deploy/deploy-server.sh" "$ROOT/deploy/deploy-server.sh"
   install -m 600 "$INCOMING/deploy/compose.production.yml" "$ROOT/deploy/compose.production.yml"

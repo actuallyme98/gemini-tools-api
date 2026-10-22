@@ -12,3 +12,5 @@ scripts/.deploy-config
 **/*.pem
 **/*.key
 .github
+.codegraph
+codegraph.json

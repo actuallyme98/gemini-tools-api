@@ -56,6 +56,18 @@ export class AIService implements OnModuleInit {
     }
   }
 
+  async agentJSON(
+    prompt: string,
+    image?: { base64: string; mimeType: string },
+  ): Promise<unknown> {
+    const provider = image ? this.providerFor('vision') : this.textProvider();
+    return this.execute(provider, () =>
+      image
+        ? provider.generateJSON(prompt, image)
+        : provider.generateJSON(prompt),
+    );
+  }
+
   async analyzeProductFromImage(
     file: Express.Multer.File,
     providerId?: string,

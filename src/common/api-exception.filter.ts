@@ -47,7 +47,12 @@ export class ApiExceptionFilter implements ExceptionFilter {
       401: ['UNAUTHORIZED', 'Bạn cần xác thực để sử dụng chức năng này.'],
       403: ['FORBIDDEN', 'Bạn không có quyền thực hiện tác vụ này.'],
       404: ['NOT_FOUND', 'Không tìm thấy API hoặc tài nguyên yêu cầu.'],
-      413: ['UPLOAD_TOO_LARGE', 'Mỗi ảnh tải lên phải nhỏ hơn hoặc bằng 10MB.'],
+      413: [
+        'UPLOAD_TOO_LARGE',
+        request.path.startsWith('/api/agent/')
+          ? 'Mỗi ảnh Agent tải lên phải nhỏ hơn hoặc bằng 16MB.'
+          : 'Mỗi ảnh tải lên phải nhỏ hơn hoặc bằng 10MB.',
+      ],
       429: ['RATE_LIMITED', 'Quá nhiều yêu cầu. Vui lòng chờ rồi thử lại.'],
       500: [
         'INTERNAL_ERROR',

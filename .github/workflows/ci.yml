@@ -28,6 +28,7 @@ jobs:
       - run: npm run lint:check
       - run: npm test -- --runInBand
       - run: npm run test:e2e -- --runInBand
+      - run: node --test test/agent-mongodb.test.cjs
       - run: bash test/deployment.test.sh
       - run: npm run build
       - name: Check deployment scripts

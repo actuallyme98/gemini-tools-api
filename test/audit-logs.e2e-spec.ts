@@ -128,6 +128,7 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
   });
   afterAll(async () => {
     if (app) await app?.close();
+    await queueEnv?.close();
     jest.restoreAllMocks();
     if (
       directory &&

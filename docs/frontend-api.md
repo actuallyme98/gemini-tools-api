@@ -7,7 +7,8 @@ Các endpoint POST nhận multipart/form-data:
 | Endpoint (/api) | Trường | Kết quả |
 | --- | --- | --- |
 | /mockups/generate-prompts | image, count (1–12) | string[] |
-| /mockups/generate-mockups | image, prompts (JSON array, 1–20) | { total, results: [{index,prompt,url}] } |
+| /mockups/generate-mockups | image, prompts (JSON array), async=true | Với async=true chỉ nhận 1 prompt, HTTP 202 {jobId,requestId,state}; client cũ bỏ async vẫn nhận {total,results:[{index,prompt,url}]} |
+| /mockups/jobs/:jobId (GET) | UUID tác vụ | {state,result?:{url,mimeType,requestId},error?,requestId} |
 | /ideas/analyze-product | image | ImageAnalysis |
 | /ideas/generate-ideas | image, basePrompt, count (1–12, mặc định 3) | [{url,prompt}] |
 | /ideas/generate-images-from-referal-images | productImage, referenceImages (tối đa 10), variations (1–10, mặc định 1) | string[] |
@@ -15,6 +16,10 @@ Các endpoint POST nhận multipart/form-data:
 | /backgrounds/jobs/:jobId (GET) | UUID tác vụ | { state, result?, error?, requestId } |
 
 [Mockup Studio](background-studio.md) áp hình in/họa tiết từ sản phẩm gốc lên sản phẩm trong ảnh tham chiếu, giữ nguyên cảnh; xử lý hàng đợi từng cặp ảnh và giữ kết quả thành công khi thử lại.
+
+Mockup Generator gửi riêng từng prompt, tối đa 3 tác vụ đồng thời. Kết quả hiện ngay khi xong, giữ đúng số thứ tự ảnh dù hoàn tất khác thứ tự; lỗi một ảnh không xóa ảnh khác. Retry chỉ ảnh lỗi/tạm dừng, dùng prompt và file đã lưu theo bộ, cùng provider/model chọn lúc retry. Lỗi billing/quota/storage hoặc CDN chưa cho phép dừng gửi ảnh tiếp theo, giữ tác vụ đang chạy. Client dùng chung cơ chế polling mỗi 2 giây, chỉ retry GET khi mạng lỗi, không tự gửi lại POST. Dừng hủy việc chờ ở client; tác vụ API đã nhận vẫn tiếp tục và có thể tính phí. Kho tác vụ dùng chung với Mockup Studio: tối đa 6 đang chạy, trạng thái hoàn tất giữ 1 giờ trong một tiến trình; restart API mất trạng thái.
+
+ShopAIKey Gemini có thể trả Markdown link ảnh thay vì inline base64. Adapter tải link HTTPS từ hostname nằm trong `SHOPAIKEY_IMAGE_DOWNLOAD_HOSTS` (mặc định `image.chr1.com,direct.shopaikey.com,api.shopaikey.com`), không gửi Authorization hoặc theo redirect. Giới hạn 32MB kể cả stream thiếu Content-Length, kiểm tra chữ ký PNG/JPEG/WebP. Tải lỗi tạm thời thử lại tối đa một lần, độc lập với tạo ảnh; không tự gọi model lại khi lỗi tải ảnh. Images API GPT/Grok cũng nhận được cả `b64_json` và `url`. Giữ lỗi `AI_NO_IMAGE` cho phản hồi thực sự không có ảnh; mã chặn nội dung được trả riêng.
 
 Các endpoint tạo/chỉnh ảnh nhận thêm `imageModel` (ID tối đa 128 ký tự từ `GET /api/ai/providers/shopaikey/image-models`); bỏ qua dùng model cấu hình. Model được kiểm tra trước bước trả phí, giữ cố định cho cả batch. `GET /api/ai/providers` có `textRouting` khi bật text VyceAI ưu tiên / ShopAIKey dự phòng. Xem [cấu hình AI](ai-providers.md).
 

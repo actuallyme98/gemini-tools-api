@@ -1,7 +1,7 @@
 import { HttpException, Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import { ApiError } from '../common/api-error';
-import { sanitizeErrorMessage } from '../common/error-sanitizer';
+import { ApiError } from './api-error';
+import { sanitizeErrorMessage } from './error-sanitizer';
 import { AuditLogService } from '../audit/audit-log.service';
 
 type ImageResult = { url: string; mimeType: string; requestId: string };
@@ -15,7 +15,7 @@ type Job = {
 };
 
 @Injectable()
-export class BackgroundJobsService {
+export class ImageJobsService {
   // shortcut: Jobs live in one API process; use a durable queue before scaling or restart recovery.
   private readonly jobs = new Map<string, Job>();
   constructor(@Optional() private readonly audit?: AuditLogService) {}

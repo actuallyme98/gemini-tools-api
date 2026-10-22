@@ -3,6 +3,7 @@ import { AIService } from '../ai/ai.service';
 import { R2Service } from '../r2/r2.service';
 
 import { withRetry } from '../utils/function.util';
+import { imageMimeType } from '../utils/image.util';
 
 @Injectable()
 export class MockupService {
@@ -10,6 +11,37 @@ export class MockupService {
     private readonly aiService: AIService,
     private readonly r2Service: R2Service,
   ) {}
+
+  async generateMockup(
+    file: Express.Multer.File,
+    prompt: string,
+    signal?: AbortSignal,
+    provider?: string,
+    imageModel?: string,
+  ) {
+    this.aiService.validateSelection(provider, ['image']);
+    if (imageModel !== undefined)
+      await this.aiService.validateImageModel(provider, imageModel);
+    const buffer = await withRetry(
+      () =>
+        this.aiService.editImage(
+          {
+            base64Image: file.buffer.toString('base64'),
+            mimeType: file.mimetype,
+            prompt,
+            ...(imageModel ? { imageModel } : {}),
+          },
+          provider,
+        ),
+      { signal },
+    );
+    signal?.throwIfAborted();
+    const mimeType = imageMimeType(buffer) || 'image/png';
+    const url = await withRetry(() => this.r2Service.upload(buffer, mimeType), {
+      signal,
+    });
+    return { url, mimeType };
+  }
 
   async generateMockups(
     file: Express.Multer.File,
@@ -21,26 +53,14 @@ export class MockupService {
     this.aiService.validateSelection(provider, ['image']);
     if (imageModel !== undefined)
       await this.aiService.validateImageModel(provider, imageModel);
-    const base64Image = file.buffer.toString('base64');
-
     const handlePrompt = async (prompt: string, index: number) => {
-      const editedBuffer = await withRetry(
-        () =>
-          this.aiService.editImage(
-            {
-              base64Image,
-              mimeType: file.mimetype,
-              prompt,
-              ...(imageModel !== undefined ? { imageModel } : {}),
-            },
-            provider,
-          ),
-        { signal },
-      );
-
-      const url = await withRetry(() => this.r2Service.upload(editedBuffer), {
+      const { url } = await this.generateMockup(
+        file,
+        prompt,
         signal,
-      });
+        provider,
+        imageModel,
+      );
 
       return { index, prompt, url };
     };

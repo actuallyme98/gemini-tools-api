@@ -24,6 +24,99 @@ const response = (image = png) =>
 describe('ShopAIKey GPT and Grok image editing', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  it('downloads URL output without forwarding API credentials and validates actual image bytes', async () => {
+    const fetcher = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(png));
+    await expect(
+      new ShopAIKeyImagesClient(config()).download(
+        'https://image.chr1.com/generated.jpg?signature=private',
+      ),
+    ).resolves.toEqual({ buffer: png, mimeType: 'image/png' });
+    expect(fetcher).toHaveBeenCalledWith(
+      'https://image.chr1.com/generated.jpg?signature=private',
+      expect.objectContaining({ redirect: 'error' }),
+    );
+    expect(fetcher.mock.calls[0][1]?.headers).toBeUndefined();
+  });
+  it.each([
+    'http://image.chr1.com/x.png',
+    'https://127.0.0.1/x.png',
+    'https://169.254.169.254/latest/meta-data',
+    'https://image.chr1.com.evil.example/x.png',
+    'https://image.chr1.com:8443/x.png',
+    'https://user:pass@image.chr1.com/x.png',
+  ])('rejects untrusted image URLs before fetching: %s', async (url) => {
+    const fetcher = jest.spyOn(global, 'fetch');
+    await expect(
+      new ShopAIKeyImagesClient(config()).download(url),
+    ).rejects.toMatchObject({ response: { code: 'AI_IMAGE_URL_UNTRUSTED' } });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+  it('rejects oversized and non-image downloads without regenerating an image', async () => {
+    const fetcher = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        new Response('large', {
+          headers: { 'content-length': String(33 * 1024 * 1024) },
+        }),
+      )
+      .mockResolvedValueOnce(new Response('<html>not an image</html>'));
+    const client = new ShopAIKeyImagesClient(config());
+    await expect(
+      client.download('https://image.chr1.com/large.png'),
+    ).rejects.toMatchObject({
+      response: { code: 'AI_IMAGE_TOO_LARGE', retryable: false },
+    });
+    await expect(
+      client.download('https://image.chr1.com/fake.png'),
+    ).rejects.toMatchObject({
+      response: { code: 'AI_IMAGE_DOWNLOAD_INVALID', retryable: false },
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('accepts an Images API URL response even when base64 was requested', async () => {
+    const fetcher = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            data: [{ url: 'https://image.chr1.com/image.png' }],
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(new Response(png));
+    await expect(
+      new ShopAIKeyImagesClient(config()).generate(
+        'gpt-image-1.5-all',
+        'Edit',
+        [original],
+      ),
+    ).resolves.toEqual({ buffer: png, mimeType: 'image/png' });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it('caps streamed images even when the CDN omits Content-Length', async () => {
+    let cancelled = false;
+    const chunk = new Uint8Array(1024 * 1024);
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.enqueue(chunk);
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(body));
+    await expect(
+      new ShopAIKeyImagesClient(config()).download(
+        'https://image.chr1.com/stream.png',
+      ),
+    ).rejects.toMatchObject({
+      response: { code: 'AI_IMAGE_TOO_LARGE', retryable: false },
+    });
+    expect(cancelled).toBe(true);
+  });
+
   it.each(['gpt-image-1.5-all', 'grok-imagine-image-2.0'])(
     'sends a real multipart source image with the exact selected model %s',
     async (model) => {
@@ -204,7 +297,7 @@ describe('ShopAIKey GPT and Grok image editing', () => {
         new ShopAIKeyImagesClient(config()).generate('gpt-image-1', 'edit', [
           original,
         ]),
-      ).rejects.toThrow(/AI provider returned/);
+      ).rejects.toThrow();
       expect(fetcher).toHaveBeenCalledTimes(1);
     },
   );

@@ -43,6 +43,11 @@ export const envValidationSchema = Joi.object({
   SHOPAIKEY_MODEL_TEXT: Joi.string().default('gemini-2.5-flash'),
   SHOPAIKEY_MODEL_VISION: Joi.string().default('gemini-2.5-flash'),
   SHOPAIKEY_MODEL_IMAGE: Joi.string(),
+  SHOPAIKEY_IMAGE_DOWNLOAD_HOSTS: Joi.string()
+    .trim()
+    .max(1024)
+    .pattern(/^[a-zA-Z0-9.-]+(?:\s*,\s*[a-zA-Z0-9.-]+)*$/)
+    .default('image.chr1.com,direct.shopaikey.com,api.shopaikey.com'),
   SHOPAIKEY_TIMEOUT_MS: Joi.number()
     .integer()
     .min(1000)
@@ -55,6 +60,11 @@ export const envValidationSchema = Joi.object({
     .default(180000),
 
   PORT: Joi.number().integer().min(1).max(65535).default(5177),
+  CORS_ALLOWED_ORIGINS: Joi.string()
+    .trim()
+    .max(2048)
+    .pattern(/^https?:\/\/[^/,\s]+(?:\s*,\s*https?:\/\/[^/,\s]+)*$/)
+    .default('https://lcgmedia.uk,http://localhost:5173,http://127.0.0.1:5173'),
   AUDIT_LOG_DIR: Joi.string().default('./logs'),
   AUDIT_LOG_RETENTION_DAYS: Joi.number().integer().min(1).max(90).default(7),
   AUDIT_IMAGE_MAX_BYTES_PER_DAY: Joi.number()

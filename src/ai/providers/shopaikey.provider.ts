@@ -19,6 +19,37 @@ export class ShopAIKeyProvider extends GoogleGenAIProvider {
   private modelRequest?: Promise<AIImageModelCatalog>;
   private readonly imageAPI: ShopAIKeyImagesClient;
 
+  protected override async normalizeImageResponse(
+    response: GenerateContentResponse,
+  ): Promise<GenerateContentResponse> {
+    const parts =
+      response.candidates
+        ?.flatMap((candidate) => candidate.content?.parts || [])
+        .filter((part) => !part.thought) || [];
+    if (parts.some((part) => part.inlineData?.data)) return response;
+    // This gateway can return a Markdown image URL even through the native GenAI endpoint.
+    const text = parts.map((part) => part.text || '').join('\n');
+    const url = /!\[[^\]]*\]\(\s*(https:\/\/[^\s)]+)\s*\)/.exec(text)?.[1];
+    if (!url) return response;
+    const image = await this.imageAPI.download(url);
+    response.candidates = [
+      {
+        content: {
+          role: 'model',
+          parts: [
+            {
+              inlineData: {
+                mimeType: image.mimeType,
+                data: image.buffer.toString('base64'),
+              },
+            },
+          ],
+        },
+      },
+    ];
+    return response;
+  }
+
   protected override async generateImageContent(
     contents: Parameters<GoogleGenAIProvider['generateImageContent']>[0],
     imageModel?: string,

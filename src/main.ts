@@ -16,9 +16,14 @@ async function bootstrap() {
     }),
   );
 
-  app.enableCors({ origin: '*', exposedHeaders: ['X-Request-Id'] });
-
   const configService: ConfigService = app.get(ConfigService);
+  app.enableCors({
+    origin: configService
+      .getOrThrow<string>('CORS_ALLOWED_ORIGINS')
+      .split(',')
+      .map((origin) => origin.trim()),
+    exposedHeaders: ['X-Request-Id'],
+  });
 
   const config = new DocumentBuilder()
     .setTitle('Gemini Image Tools API')

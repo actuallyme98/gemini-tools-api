@@ -58,7 +58,13 @@ async function main() {
           console.log(JSON.stringify(event));
           count++;
         }
-      } else if (event.event === 'http_completed') {
+      } else if (
+        [
+          'http_completed',
+          'background_job_completed',
+          'background_job_failed',
+        ].includes(event.event)
+      ) {
         recent.push(event);
         if (recent.length > limit) recent.shift();
       }

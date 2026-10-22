@@ -16,6 +16,7 @@ import type {
 import type { AICapability } from '../ai-provider';
 import { parseAIJSON } from '../json.util';
 import { ApiError } from '../../common/api-error';
+import { sanitizeErrorMessage } from '../../common/error-sanitizer';
 import { AuditLogService, type AuditPart } from '../../audit/audit-log.service';
 
 interface GoogleGenAIProviderConfig {
@@ -92,15 +93,95 @@ export abstract class GoogleGenAIProvider implements AIProvider {
       'generateContent:image',
       contents,
     );
-    const response = await this.imageGenai.models.generateContent({
+    let response = await this.imageGenai.models.generateContent({
       model: imageModel ?? this.modelImage,
       contents,
       ...(this.providerConfig.imageResponseModalities
         ? { config: { responseModalities: ['TEXT', 'IMAGE'] } }
         : {}),
     });
+    await this.audit?.write('ai_response', {
+      provider: this.id,
+      model: imageModel ?? this.modelImage,
+      responseId: response.responseId,
+      modelVersion: response.modelVersion,
+      promptFeedback: response.promptFeedback,
+      candidates: response.candidates?.slice(0, 8).map((candidate) => ({
+        finishReason: candidate.finishReason,
+        finishMessage: candidate.finishMessage
+          ? sanitizeErrorMessage(candidate.finishMessage)
+          : undefined,
+        safetyRatings: candidate.safetyRatings,
+        parts: candidate.content?.parts?.slice(0, 20).map((part) =>
+          part.thought
+            ? { type: 'thought', omitted: true }
+            : {
+                text: part.text
+                  ? sanitizeErrorMessage(part.text, 2000)
+                  : undefined,
+                image: part.inlineData
+                  ? {
+                      mimeType: part.inlineData.mimeType,
+                      base64Length: part.inlineData.data?.length,
+                    }
+                  : undefined,
+                file: part.fileData
+                  ? { mimeType: part.fileData.mimeType, present: true }
+                  : undefined,
+              },
+        ),
+      })),
+    });
     this.assertResponse(response);
+    response = await this.normalizeImageResponse(response);
+    const imageCandidate = response.candidates?.find((candidate) =>
+      candidate.content?.parts?.some(
+        (part) =>
+          !part.thought &&
+          part.inlineData?.data &&
+          /^image\//.test(part.inlineData.mimeType || 'image/png'),
+      ),
+    );
+    if (imageCandidate) {
+      if (imageCandidate.content)
+        imageCandidate.content.parts = imageCandidate.content.parts?.filter(
+          (part) => !part.thought,
+        );
+      response.candidates = [imageCandidate];
+    }
+    this.assertResponse(response);
+    if (!imageCandidate) {
+      const candidate = response.candidates?.[0];
+      const finish = String(candidate?.finishReason || 'EMPTY_RESPONSE');
+      const explanation = candidate?.content?.parts
+        ?.filter((part) => !part.thought)
+        .map((part) => part.text || '')
+        .join(' ')
+        .trim();
+      throw new ApiError(
+        502,
+        'AI_NO_IMAGE',
+        'Model đã phản hồi nhưng không tạo ảnh cho yêu cầu này.',
+        {
+          provider: this.id,
+          reason: sanitizeErrorMessage(
+            [finish, candidate?.finishMessage, explanation]
+              .filter(Boolean)
+              .join(': '),
+            600,
+          ),
+          suggestion:
+            'Kiểm tra nội dung phản hồi, điều chỉnh prompt hoặc thử lại riêng ảnh này. Ảnh đã thành công vẫn được giữ lại.',
+        },
+      );
+    }
     return response;
+  }
+
+  protected normalizeImageResponse(
+    response: GenerateContentResponse,
+  ): Promise<GenerateContentResponse> {
+    return Promise.resolve(response);
   }
 
   private async auditContents(
@@ -134,6 +215,8 @@ export abstract class GoogleGenAIProvider implements AIProvider {
       [
         'SAFETY',
         'IMAGE_SAFETY',
+        'IMAGE_PROHIBITED_CONTENT',
+        'IMAGE_RECITATION',
         'BLOCKLIST',
         'PROHIBITED_CONTENT',
         'RECITATION',

@@ -10,6 +10,7 @@ import request from 'supertest';
 import { AuditModule } from '../src/audit/audit.module';
 import { AuditLogService } from '../src/audit/audit-log.service';
 import { BackgroundModule } from '../src/background/background.module';
+import { MockupModule } from '../src/mockup/mockup.module';
 import { ApiExceptionFilter } from '../src/common/api-exception.filter';
 import { GeminiService } from '../src/gemini/gemini.service';
 import { ShopAIKeyProvider } from '../src/ai/providers/shopaikey.provider';
@@ -68,7 +69,7 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
       R2_PUBLIC_URL: 'https://cdn.example',
     });
     const module = await Test.createTestingModule({
-      imports: [AuditModule, BackgroundModule],
+      imports: [AuditModule, BackgroundModule, MockupModule],
       providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
     })
       .overrideProvider(ConfigService)
@@ -168,6 +169,128 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
       .map((line) => JSON.parse(line) as Record<string, unknown>)
       .filter((event) => event.requestId === id);
   };
+  const postMockup = (prompt = 'Edit the cardigan') =>
+    request(app.getHttpServer() as Parameters<typeof request>[0])
+      .post('/api/mockups/generate-mockups')
+      .field('async', 'true')
+      .field('provider', 'shopaikey')
+      .field('prompts', JSON.stringify([prompt]))
+      .attach('image', png, {
+        filename: 'product.png',
+        contentType: 'image/png',
+      });
+  const pollMockup = async (id: string) => {
+    for (let i = 0; i < 100; i++) {
+      const response = await request(
+        app.getHttpServer() as Parameters<typeof request>[0],
+      )
+        .get('/api/mockups/jobs/' + id)
+        .expect(200)
+        .expect('Cache-Control', 'no-store');
+      if ((response.body as { state: string }).state !== 'pending')
+        return response;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error('Mockup job did not complete');
+  };
+
+  it('returns 202 while a mockup is pending and preserves its audit trace after HTTP ends', async () => {
+    let finish!: (value: typeof result) => void;
+    generate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const accepted = await postMockup().expect(202);
+    const body = accepted.body as { jobId: string; requestId: string };
+    expect(body.requestId).toBe(accepted.headers['x-request-id']);
+    await request(app.getHttpServer() as Parameters<typeof request>[0])
+      .get('/api/mockups/jobs/' + body.jobId)
+      .expect(200)
+      .expect(({ body }) =>
+        expect((body as { state: string }).state).toBe('pending'),
+      );
+    for (let i = 0; i < 100 && !finish; i++)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    finish(result);
+    const completed = await pollMockup(body.jobId);
+    expect(completed.body).toMatchObject({
+      state: 'done',
+      result: { mimeType: 'image/png', requestId: body.requestId },
+    });
+    const records = await events(body.requestId);
+    const names = records.map((e) => e.event);
+    expect(names).toContain('ai_response');
+    expect(names.indexOf('http_completed')).toBeLessThan(
+      names.indexOf('generated_image'),
+    );
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it('recovers native Markdown image output and archives diagnostics without signed URLs or base64', async () => {
+    generate.mockResolvedValueOnce({
+      candidates: [
+        {
+          finishReason: 'STOP',
+          content: {
+            parts: [
+              {
+                text: '![image](https://image.chr1.com/generated.jpg?token=private-url-token)',
+              },
+            ],
+          },
+        },
+      ],
+    } as unknown as typeof result);
+    jest.mocked(global.fetch).mockResolvedValueOnce(new Response(png));
+    const accepted = await postMockup().expect(202);
+    const body = accepted.body as { jobId: string; requestId: string };
+    expect((await pollMockup(body.jobId)).body).toMatchObject({
+      state: 'done',
+      result: { mimeType: 'image/png' },
+    });
+    const records = await events(body.requestId);
+    expect(records.map((e) => e.event)).toContain('ai_image_downloaded');
+    const raw = JSON.stringify(records);
+    expect(raw).not.toContain('private-url-token');
+    expect(raw).not.toContain(png.toString('base64'));
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+  it('reports genuine missing-image responses with the provider reason and no automatic paid retry', async () => {
+    generate.mockResolvedValueOnce({
+      candidates: [
+        {
+          finishReason: 'NO_IMAGE',
+          content: {
+            parts: [
+              { thought: true, text: 'private reasoning omitted' },
+              { text: 'Cannot generate this image sk-secret123456789' },
+            ],
+          },
+        },
+      ],
+    } as unknown as typeof result);
+    const accepted = await postMockup().expect(202);
+    const body = accepted.body as { jobId: string; requestId: string };
+    const failed = await pollMockup(body.jobId);
+    expect(failed.body).toMatchObject({
+      state: 'failed',
+      error: {
+        code: 'AI_NO_IMAGE',
+        requestId: body.requestId,
+        retryable: false,
+        reason: expect.stringContaining('NO_IMAGE') as unknown,
+      },
+    });
+    expect(generate).toHaveBeenCalledTimes(1);
+    expect(send).not.toHaveBeenCalled();
+    const records = await events(body.requestId);
+    expect(records.map((e) => e.event)).toContain('ai_response');
+    expect(JSON.stringify(records)).not.toContain('private reasoning omitted');
+    expect(JSON.stringify(records)).not.toContain('sk-secret');
+  });
 
   it('finishes detached image work after HTTP 202 and keeps the original audit context', async () => {
     let finish!: (value: typeof result) => void;

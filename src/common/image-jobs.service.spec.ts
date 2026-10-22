@@ -1,4 +1,4 @@
-import { BackgroundJobsService } from './background-jobs.service';
+import { ImageJobsService } from './image-jobs.service';
 import { ApiError } from '../common/api-error';
 
 const tick = async () => {
@@ -10,7 +10,7 @@ describe('Background image jobs', () => {
   afterEach(() => jest.restoreAllMocks());
 
   it('keeps a single task alive beyond proxy timeouts, returns its trace, then expires it', async () => {
-    const jobs = new BackgroundJobsService();
+    const jobs = new ImageJobsService();
     let finish!: (value: { url: string; mimeType: string }) => void;
     const work = jest.fn(
       () =>
@@ -39,7 +39,7 @@ describe('Background image jobs', () => {
   });
 
   it('preserves useful AI errors and redacts credentials', async () => {
-    const jobs = new BackgroundJobsService();
+    const jobs = new ImageJobsService();
     const job = jobs.create(
       () =>
         Promise.reject(
@@ -66,7 +66,7 @@ describe('Background image jobs', () => {
   });
 
   it('bounds concurrent paid tasks and accepts work again after completion', async () => {
-    const jobs = new BackgroundJobsService();
+    const jobs = new ImageJobsService();
     let finish!: (value: { url: string; mimeType: string }) => void;
     jobs.create(
       () =>

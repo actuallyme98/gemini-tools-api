@@ -27,7 +27,7 @@ import {
   imageModelSelectionSchema,
 } from '../ai/provider-selection.dto';
 import { BackgroundService } from './background.service';
-import { BackgroundJobsService } from './background-jobs.service';
+import { ImageJobsService } from '../common/image-jobs.service';
 import {
   MAX_BACKGROUND_PROMPT_LENGTH,
   ReplaceBackgroundDto,
@@ -37,7 +37,7 @@ import {
 export class BackgroundController {
   constructor(
     private readonly backgrounds: BackgroundService,
-    private readonly jobs: BackgroundJobsService,
+    private readonly jobs: ImageJobsService,
   ) {}
 
   @Get('jobs/:jobId')

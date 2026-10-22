@@ -62,6 +62,81 @@ const imageResponse = {
 
 describe('ShopAIKey native GenAI provider', () => {
   afterEach(() => jest.restoreAllMocks());
+
+  it('converts native Markdown image output into bytes and retries only its download', async () => {
+    const image = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
+    const fetcher = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValueOnce(new Response('busy', { status: 503 }))
+      .mockResolvedValueOnce(new Response(image));
+    const provider = createProvider();
+    await provider.onModuleInit();
+    provider.create.mockResolvedValue({
+      candidates: [
+        {
+          finishReason: 'STOP',
+          content: {
+            parts: [{ text: '![image](https://image.chr1.com/generated.jpg)' }],
+          },
+        },
+      ],
+    });
+    await expect(
+      provider.editImage({
+        base64Image: 'aW1hZ2U=',
+        mimeType: 'image/png',
+        prompt: 'Edit',
+      }),
+    ).resolves.toEqual(image);
+    expect(provider.create).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it.each(['IMAGE_PROHIBITED_CONTENT', 'IMAGE_RECITATION'])(
+    'reports %s without trying to download or regenerate',
+    async (finishReason) => {
+      const fetcher = jest.spyOn(global, 'fetch');
+      const provider = createProvider();
+      await provider.onModuleInit();
+      provider.create.mockResolvedValue({
+        candidates: [
+          {
+            finishReason,
+            content: {
+              parts: [{ text: '![image](https://image.chr1.com/blocked.jpg)' }],
+            },
+          },
+        ],
+      });
+      await expect(provider.generateImage('Edit')).rejects.toMatchObject({
+        response: { code: 'AI_CONTENT_BLOCKED', reason: finishReason },
+      });
+      expect(provider.create).toHaveBeenCalledTimes(1);
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+  it('uses a final image from later candidates and excludes thought images', async () => {
+    const provider = createProvider();
+    await provider.onModuleInit();
+    provider.create.mockResolvedValue({
+      candidates: [
+        { content: { parts: [{ text: 'Working' }] } },
+        {
+          content: {
+            parts: [
+              {
+                thought: true,
+                inlineData: { data: 'ZHJhZnQ=', mimeType: 'image/png' },
+              },
+              { inlineData: { data: 'ZmluYWw=', mimeType: 'image/png' } },
+            ],
+          },
+        },
+      ],
+    });
+    await expect(provider.generateImage('Edit')).resolves.toEqual(
+      Buffer.from('final'),
+    );
+  });
   it('normalizes the live catalog, filters incompatible models, caches requests and supports refresh', async () => {
     const fetcher = jest.spyOn(global, 'fetch').mockImplementation(() =>
       Promise.resolve(
@@ -495,22 +570,22 @@ describe('ShopAIKey native GenAI provider', () => {
       const provider = createProvider();
       await provider.onModuleInit();
       provider.create.mockResolvedValue(response);
-      await expect(provider.generateImage('Product')).rejects.toThrow(
-        'No image returned from shopaikey',
-      );
+      await expect(provider.generateImage('Product')).rejects.toMatchObject({
+        response: { code: 'AI_NO_IMAGE', retryable: false },
+      });
       await expect(
         provider.editImage({
           base64Image: 'aW1hZ2U=',
           mimeType: 'image/png',
           prompt: 'Product',
         }),
-      ).rejects.toThrow('shopaikey');
+      ).rejects.toMatchObject({ response: { code: 'AI_NO_IMAGE' } });
       await expect(
         provider.generateImagesFromReferalImages({
           productImageBase64: 'aW1hZ2U=',
           productMimeType: 'image/png',
         }),
-      ).rejects.toThrow('shopaikey');
+      ).rejects.toMatchObject({ response: { code: 'AI_NO_IMAGE' } });
     },
   );
 

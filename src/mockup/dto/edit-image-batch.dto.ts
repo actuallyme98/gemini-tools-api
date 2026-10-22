@@ -1,5 +1,5 @@
 import { ImageProviderSelectionDto } from '../../ai/provider-selection.dto';
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
 import {
   IsArray,
@@ -8,8 +8,18 @@ import {
   ArrayMaxSize,
   MinLength,
   MaxLength,
+  IsOptional,
+  IsIn,
 } from 'class-validator';
 export class EditImageBatchDto extends ImageProviderSelectionDto {
+  @ApiPropertyOptional({
+    enum: ['true', 'false'],
+    description:
+      'With true, submit exactly one prompt and poll the returned job.',
+  })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  async?: string;
   @ApiProperty({
     description: 'JSON array of 1–20 non-empty prompts',
     example: '["Add a studio background"]',

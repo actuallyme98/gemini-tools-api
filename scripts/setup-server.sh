@@ -19,7 +19,7 @@ case "$SSH_KEY" in /*|[A-Za-z]:/*) ;; *) SSH_KEY="$REPO_DIR/$SSH_KEY" ;; esac
 SSH=(ssh -i "$SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$SERVER_USER@$SERVER_IP")
 INCOMING="$("${SSH[@]}" "umask 077; mkdir -p '$DEPLOY_PATH'; mktemp -d '$DEPLOY_PATH/.bootstrap.XXXXXXXX'")"
 [[ "$INCOMING" == "$DEPLOY_PATH"/.bootstrap.* && "$INCOMING" =~ ^/[A-Za-z0-9_./-]+$ ]] || exit 2
-tar -C "$REPO_DIR" -czf - deploy/compose.production.yml deploy/deploy-server.sh deploy/nginx-gemini-tools.conf |
+tar -C "$REPO_DIR" -czf - deploy/compose.production.yml deploy/deploy-server.sh deploy/nginx-gemini-tools.conf deploy/nginx-lcgmedia.conf |
   "${SSH[@]}" "tar -xzf - -C '$INCOMING'"
 if ! "${SSH[@]}" "test -f '$DEPLOY_PATH/.env'"; then
   # Stream over SSH with a restrictive umask; never print or commit credentials.
@@ -38,6 +38,9 @@ if [[ ! -f "$ROOT/deploy/deploy-server.sh" || ! -f "$ROOT/.images.env" ]]; then
 fi
 if [[ ! -f "$ROOT/deploy/nginx-gemini-tools.conf" ]]; then
   install -m 600 "$INCOMING/deploy/nginx-gemini-tools.conf" "$ROOT/deploy/nginx-gemini-tools.conf"
+fi
+if [[ ! -f "$ROOT/deploy/nginx-lcgmedia.conf" ]]; then
+  install -m 600 "$INCOMING/deploy/nginx-lcgmedia.conf" "$ROOT/deploy/nginx-lcgmedia.conf"
 fi
 docker compose version
 command -v curl

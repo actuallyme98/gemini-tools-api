@@ -77,7 +77,9 @@ export const envValidationSchema = Joi.object({
     .trim()
     .max(2048)
     .pattern(/^https?:\/\/[^/,\s]+(?:\s*,\s*https?:\/\/[^/,\s]+)*$/)
-    .default('https://lcgmedia.uk,http://localhost:5173,http://127.0.0.1:5173'),
+    .default(
+      'https://tools.lcgmedia.uk,https://lcgmedia.uk,http://localhost:5173,http://127.0.0.1:5173',
+    ),
   AUDIT_LOG_DIR: Joi.string().default('./logs'),
   AUDIT_LOG_RETENTION_DAYS: Joi.number().integer().min(1).max(90).default(7),
   AUDIT_IMAGE_MAX_BYTES_PER_DAY: Joi.number()

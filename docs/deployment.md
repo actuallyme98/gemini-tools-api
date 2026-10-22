@@ -11,7 +11,7 @@ Hai repository dùng GitHub Actions → GHCR → SSH → Docker Compose, cùng c
 | Compose project | `gemini-tools` |
 | Frontend | `127.0.0.1:3020 → app:80` |
 | API | `127.0.0.1:3021 → api:5177` |
-| App | `https://lcgmedia.uk` |
+| App | `https://tools.lcgmedia.uk` |
 | API trong trình duyệt | `https://api.lcgmedia.uk/api` |
 | Images | `ghcr.io/actuallyme98/gemini-tools-api`, `ghcr.io/actuallyme98/gemini-tools-app` |
 
@@ -103,7 +103,7 @@ Workflow frontend truyền Docker build arg `VITE_API_BASE_URL=https://api.lcgme
 
 ## Domain và host Nginx
 
-Tạo record Cloudflare `A @ → 13.213.241.40` và `A api → 13.213.241.40`, bật proxy và SSL **Full (strict)**. Chứng chỉ Origin phải bao phủ `lcgmedia.uk` và `*.lcgmedia.uk` (hoặc riêng `api.lcgmedia.uk`). Cài PEM tại `/etc/ssl/lcgmedia/origin.pem`, key tại `/etc/ssl/lcgmedia/origin.key`, key thuộc root với quyền 600. Không lưu chứng chỉ/key vào Git.
+Tạo record Cloudflare `A tools → 13.213.241.40` và `A api → 13.213.241.40`, bật proxy và SSL **Full (strict)**. Chứng chỉ Origin hiện tại bao phủ `lcgmedia.uk` và `*.lcgmedia.uk`, dùng được cho cả app và API. Cài PEM tại `/etc/ssl/lcgmedia/origin.pem`, key tại `/etc/ssl/lcgmedia/origin.key`, key thuộc root với quyền 600. Không lưu chứng chỉ/key vào Git. Nếu apex `lcgmedia.uk` vẫn trỏ về server này, Nginx chuyển hướng 308 sang `https://tools.lcgmedia.uk` và giữ nguyên đường dẫn.
 
 Script setup đặt template tại `/home/ubuntu/gemini-tools/deploy/nginx-lcgmedia.conf`. Cấu hình app chuyển tới cổng 3020; API chuyển trực tiếp tới 3021 và giữ nguyên prefix `/api`:
 
@@ -112,13 +112,13 @@ sudo install -m 644 /home/ubuntu/gemini-tools/deploy/nginx-lcgmedia.conf /etc/ng
 sudo ln -s /etc/nginx/sites-available/lcgmedia /etc/nginx/sites-enabled/lcgmedia
 sudo nginx -t
 sudo systemctl reload nginx
-curl --fail https://lcgmedia.uk/healthz
+curl --fail https://tools.lcgmedia.uk/healthz
 curl --fail https://api.lcgmedia.uk/api/health
 ```
 
 Nginx có giới hạn upload 115 MiB và timeout origin 1200 giây. **Cloudflare proxy có giới hạn riêng**: read timeout hiện là 125 giây, và upload Free/Pro tối đa 100 MB. Các batch AI lâu hoặc 11 ảnh lớn có thể vượt giới hạn này dù origin cho phép. Tham khảo [connection limits](https://developers.cloudflare.com/fundamentals/reference/connection-limits/) và [upload limits](https://developers.cloudflare.com/support/troubleshooting/http-status-codes/4xx-client-error/error-413/).
 
-Nếu cần request lâu hơn qua cùng domain, dùng DNS only và cài chứng chỉ public như Let's Encrypt, ví dụ `certbot --nginx -d lcgmedia.uk -d api.lcgmedia.uk`, trước khi truy cập trực tiếp. Cloudflare Origin certificate chỉ phù hợp với kết nối qua Cloudflare. Phương án queue/poll cho tác vụ dài là thay đổi chức năng riêng.
+Nếu cần request lâu hơn qua cùng domain, dùng DNS only và cài chứng chỉ public như Let's Encrypt, ví dụ `certbot --nginx -d tools.lcgmedia.uk -d api.lcgmedia.uk`, trước khi truy cập trực tiếp. Cloudflare Origin certificate chỉ phù hợp với kết nối qua Cloudflare. Phương án queue/poll cho tác vụ dài là thay đổi chức năng riêng.
 
 Cấu hình R2 CORS cho domain frontend nếu muốn download ảnh/ZIP bằng trình duyệt.
 
@@ -126,7 +126,7 @@ Cấu hình R2 CORS cho domain frontend nếu muốn download ảnh/ZIP bằng t
 
 Đặt `R2_BUCKET_NAME` và `R2_PUBLIC_URL` theo bucket/CDN của EziHubb, giữ credential có quyền ghi vào bucket đó. `R2_PUBLIC_URL` là URL gốc CDN của bucket, không thêm prefix ứng dụng. Cấu hình `R2_KEY_PREFIX=gemini-tools` (mặc định) để tất cả ảnh từ Mockup, Idea, Image Editor và Mockup Studio được ghi vào `gemini-tools/mockups/<uuid>.<extension>`; key và URL public dùng cùng prefix. Prefix không được rỗng, chứa `..`, slash đầu/cuối hoặc segment rỗng; có thể đặt namespace lồng như `apps/gemini-tools`.
 
-Khi chuyển từ bucket cũ, chỉ ảnh tạo mới dùng bucket/prefix mới. Giữ bucket cũ để URL đã lưu trong lịch sử trình duyệt tiếp tục truy cập; không tự di chuyển hoặc xóa ảnh cũ. Thêm origin `https://lcgmedia.uk` với `GET`/`HEAD` vào CORS của bucket dùng chung, giữ nguyên các rule/origin hiện tại của EziHubb. Frontend gọi API để tạo ảnh; không cần cấp CORS `PUT` cho origin Tools.
+Khi chuyển từ bucket cũ, chỉ ảnh tạo mới dùng bucket/prefix mới. Giữ bucket cũ để URL đã lưu trong lịch sử trình duyệt tiếp tục truy cập; không tự di chuyển hoặc xóa ảnh cũ. Thêm origin `https://tools.lcgmedia.uk` với `GET`/`HEAD` vào CORS của bucket dùng chung, giữ nguyên các rule/origin hiện tại của EziHubb. Frontend gọi API để tạo ảnh; không cần cấp CORS `PUT` cho origin Tools.
 
 ## Deploy, rollback và theo dõi
 
@@ -185,4 +185,4 @@ bash scripts/container-smoke.sh gemini-tools-api:ci
 # Tương tự ở frontend với image gemini-tools-app:ci.
 ```
 
-API CORS: `CORS_ALLOWED_ORIGINS=https://lcgmedia.uk`. Trong giai đoạn chuyển đổi có thể thêm `https://tools.ezihubb.com` vào danh sách, ngăn cách bằng dấu phẩy. Giữ cấu hình CORS R2 hiện có của EziHubb và thêm riêng `GET`/`HEAD` cho origin mới.
+API CORS: `CORS_ALLOWED_ORIGINS=https://tools.lcgmedia.uk`. Trong giai đoạn chuyển đổi có thể thêm `https://lcgmedia.uk` vào danh sách, ngăn cách bằng dấu phẩy. Giữ cấu hình CORS R2 hiện có của EziHubb và thêm riêng `GET`/`HEAD` cho origin mới.

@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   HttpCode,
   Param,
   Query,
@@ -56,13 +57,39 @@ export class AgentAuthController {
     private readonly auth: AgentAuthService,
     private readonly store: AgentStore,
   ) {}
-  @Get('status') async status() {
+  @Get('status') @Header('Cache-Control', 'no-store') async status() {
     return {
       enabled: this.store.enabled,
       setupRequired:
         this.store.enabled &&
         !(await this.store.query<AgentUser>('user', {}, 1)).length,
+      google: await this.auth.googleConfiguration(),
     };
+  }
+  @Post('google/challenge')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  googleChallenge(@Req() req: AgentRequest) {
+    return this.auth.googleChallenge(req.ip ?? 'unknown');
+  }
+  @Post('google')
+  @HttpCode(200)
+  @Header('Cache-Control', 'no-store')
+  googleLogin(@Body() body: unknown, @Req() req: AgentRequest) {
+    const input = parse<{ credential: string; nonce: string }>(
+      Joi.object({
+        credential: Joi.string().max(16384).required(),
+        nonce: Joi.string()
+          .pattern(/^[a-f0-9]{64}$/)
+          .required(),
+      }),
+      body,
+    );
+    return this.auth.googleLogin(
+      input.credential,
+      input.nonce,
+      req.ip ?? 'unknown',
+    );
   }
   @Post('login') @HttpCode(200) login(
     @Body() body: unknown,
@@ -94,7 +121,12 @@ export class AgentAuthController {
       password: string;
       role: AgentUser['role'];
     }>(userSchema, body);
-    return this.auth.createUser(input.email, input.password, input.role);
+    return this.auth.createUser(
+      input.email,
+      input.password,
+      input.role,
+      req.agentUser,
+    );
   }
 }
 
@@ -115,6 +147,49 @@ export class AgentController {
       return conversation;
     });
   }
+  @Get('history') history(
+    @Req() req: AgentRequest,
+    @Query('before') before?: string,
+  ) {
+    return this.store.conversationPage(req.agentUser.id, before);
+  }
+  @Patch('conversations/:id/context') async pinContext(
+    @Req() req: AgentRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    const input = parse<{ pinnedRequirements: string[]; updatedAt: string }>(
+      Joi.object({
+        pinnedRequirements: Joi.array()
+          .items(Joi.string().trim().min(1).max(1000))
+          .max(20)
+          .unique()
+          .required(),
+        updatedAt: Joi.string().isoDate().required(),
+      }),
+      body,
+    );
+    const conversationId = parse<string>(idSchema.required(), id);
+    await this.store.get<Conversation>(
+      'conversation',
+      conversationId,
+      req.agentUser.id,
+    );
+    const updated = await this.store.patch<Conversation>(
+      'conversation',
+      conversationId,
+      req.agentUser.id,
+      { pinnedRequirements: input.pinnedRequirements },
+      { updatedAt: input.updatedAt },
+    );
+    if (!updated)
+      throw new ApiError(
+        409,
+        'AGENT_CONTEXT_CHANGED',
+        'Hội thoại vừa thay đổi. Tải lại trước khi lưu yêu cầu ghim.',
+      );
+    return updated;
+  }
   @Post('conversations') create(
     @Req() req: AgentRequest,
     @Body() body: unknown,
@@ -131,11 +206,13 @@ export class AgentController {
     @Req() req: AgentRequest,
     @Param('id') id: string,
     @Query('runId') runId?: string,
+    @Query('before') before?: string,
   ) {
     return this.agent.detail(
       req.agentUser.id,
       parse<string>(idSchema.required(), id),
       runId ? parse<string>(idSchema.required(), runId) : undefined,
+      before,
     );
   }
   @Post('conversations/:id/messages') @HttpCode(202) message(

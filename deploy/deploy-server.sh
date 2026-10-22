@@ -56,7 +56,11 @@ printf 'DEPLOY_PATH=%s\nAPI_IMAGE=%s\nAPP_IMAGE=%s\n' "$ROOT" "$API_IMAGE" "$APP
 DC=(docker compose --project-name gemini-tools --env-file "$CANDIDATE" -f "$COMPOSE")
 # --quiet avoids printing the runtime env and provider credentials.
 "${DC[@]}" config --quiet
-"${DC[@]}" pull "$COMPONENT"
+SERVICES=("$COMPONENT")
+if [[ "$COMPONENT" == api ]] && "${DC[@]}" config --services | grep -qx worker; then
+  SERVICES+=(worker)
+fi
+"${DC[@]}" pull "${SERVICES[@]}"
 
 check_api() {
   curl --fail --silent --show-error --max-time 10 --retry 5 --retry-delay 2 --retry-all-errors \
@@ -74,22 +78,28 @@ smoke() {
 }
 rollback_failed_deploy() {
   echo "Deployment failed; restoring the previous $COMPONENT image." >&2
+  if [[ "$COMPONENT" == api && ${#SERVICES[@]} -gt 1 ]]; then "${DC[@]}" stop worker || true; fi
   if [[ -n "$OLD_IMAGE" && -f "$INSTALLED_COMPOSE" ]]; then
     local previous_dc=(docker compose --project-name gemini-tools --env-file "$CURRENT" -f "$INSTALLED_COMPOSE")
+    local previous_services=("$COMPONENT")
+    if [[ "$COMPONENT" == api ]] && "${previous_dc[@]}" config --services | grep -qx worker; then previous_services+=(worker); fi
     APP_IMAGE="$(read_image "$CURRENT" APP_IMAGE)"
-    if "${previous_dc[@]}" up -d --no-deps --wait --wait-timeout 120 "$COMPONENT" && smoke; then
+    if "${previous_dc[@]}" up -d --no-deps --wait --wait-timeout 120 "${previous_services[@]}" && smoke; then
       echo "Previous $COMPONENT container restored." >&2
     else
       echo "ROLLBACK FAILED. Inspect: docker compose --project-name gemini-tools ps" >&2
     fi
   else
     # First release has no old image. Only remove its failed service.
-    "${DC[@]}" stop "$COMPONENT" || true
-    "${DC[@]}" rm -f "$COMPONENT" || true
+    "${DC[@]}" stop "${SERVICES[@]}" || true
+    "${DC[@]}" rm -f "${SERVICES[@]}" || true
   fi
   exit 1
 }
-if ! "${DC[@]}" up -d --no-deps --wait --wait-timeout 120 "$COMPONENT"; then
+if [[ "$COMPONENT" == api && ${#SERVICES[@]} -gt 1 ]]; then
+  if ! "${DC[@]}" up -d --wait --wait-timeout 120 queue-redis; then rollback_failed_deploy; fi
+fi
+if ! "${DC[@]}" up -d --no-deps --wait --wait-timeout 180 "${SERVICES[@]}"; then
   rollback_failed_deploy
 fi
 if ! smoke; then rollback_failed_deploy; fi

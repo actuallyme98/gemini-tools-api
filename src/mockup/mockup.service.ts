@@ -33,7 +33,7 @@ export class MockupService {
           },
           provider,
         ),
-      { signal },
+      { signal, retries: 1 },
     );
     signal?.throwIfAborted();
     const mimeType = imageMimeType(buffer) || 'image/png';

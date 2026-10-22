@@ -4,7 +4,6 @@ import {
   imageModelSelectionSchema,
 } from '../ai/provider-selection.dto';
 import type { Response } from 'express';
-import { requestSignal } from '../common/request-signal';
 import { multerConfig, requireImage } from '../common/multer.config';
 import {
   Controller,
@@ -14,6 +13,8 @@ import {
   Body,
   Res,
   UploadedFiles,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
 import {
   FileFieldsInterceptor,
@@ -21,12 +22,15 @@ import {
 } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes } from '@nestjs/swagger';
 
-import { IdeaService } from './idea.service';
 import { GenerateIdeaDTO, ReferenceImagesDTO } from './dto/create-idea.dto';
+import { ImageJobsService } from '../common/image-jobs.service';
+import { storeImage } from '../common/image-task';
+import { AgentGuard, type AgentRequest } from '../agent/agent-auth.service';
 
 @Controller('ideas')
+@UseGuards(AgentGuard)
 export class IdeaController {
-  constructor(private readonly ideaService: IdeaService) {}
+  constructor(private readonly jobs: ImageJobsService) {}
 
   @Post('analyze-product')
   @UseInterceptors(FileInterceptor('image', multerConfig))
@@ -47,10 +51,18 @@ export class IdeaController {
   async analyzeProductController(
     @UploadedFile() file: Express.Multer.File,
     @Body() body: ProviderSelectionDto,
+    @Res({ passthrough: true }) response: Response,
+    @Req() req: AgentRequest,
   ) {
-    return this.ideaService.analyzeProductFromImage(
-      requireImage(file),
-      body.provider,
+    return this.jobs.respond(
+      {
+        operation: 'analyze',
+        images: [storeImage(requireImage(file))],
+        provider: body.provider,
+      },
+      req,
+      response,
+      body.async === 'true',
     );
   }
 
@@ -80,14 +92,20 @@ export class IdeaController {
     @UploadedFile() file: Express.Multer.File,
     @Body() body: GenerateIdeaDTO,
     @Res({ passthrough: true }) response: Response,
+    @Req() req: AgentRequest,
   ) {
-    return this.ideaService.generateIdeasFromImage(
-      requireImage(file),
-      body.basePrompt,
-      body.count,
-      requestSignal(response),
-      body.provider,
-      body.imageModel,
+    return this.jobs.respond(
+      {
+        operation: 'ideas',
+        images: [storeImage(requireImage(file))],
+        prompt: body.basePrompt,
+        count: body.count,
+        provider: body.provider,
+        imageModel: body.imageModel,
+      },
+      req,
+      response,
+      body.async === 'true',
     );
   }
 
@@ -141,14 +159,22 @@ export class IdeaController {
     },
     @Body() body: ReferenceImagesDTO,
     @Res({ passthrough: true }) response: Response,
+    @Req() req: AgentRequest,
   ) {
-    return this.ideaService.generateIdeasFromReferalImages({
-      productImage: requireImage(files.productImage?.[0]),
-      referenceImages: files.referenceImages?.map((file) => requireImage(file)),
-      variations: body.variations,
-      signal: requestSignal(response),
-      provider: body.provider,
-      imageModel: body.imageModel,
-    });
+    return this.jobs.respond(
+      {
+        operation: 'references',
+        images: [
+          requireImage(files.productImage?.[0]),
+          ...(files.referenceImages ?? []).map((file) => requireImage(file)),
+        ].map(storeImage),
+        count: body.variations,
+        provider: body.provider,
+        imageModel: body.imageModel,
+      },
+      req,
+      response,
+      body.async === 'true',
+    );
   }
 }

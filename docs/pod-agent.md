@@ -11,7 +11,7 @@ AGENT_ENABLED=true
 MONGODB_URI=mongodb://lcgmedia_agent:ENCODED_PASSWORD@pod-mongodb:27017/lcgmedia?authSource=lcgmedia
 MONGODB_DATABASE=lcgmedia
 AGENT_ASSET_ENCRYPTION_KEY=YOUR_64_HEX_CHARACTER_KEY
-AGENT_WORKER_ENABLED=true
+QUEUE_WORKER_ENABLED=true
 AGENT_CONCURRENCY=3
 AGENT_SESSION_HOURS=24
 ```
@@ -82,9 +82,9 @@ MongoDB stores conversations, runs, steps, users, hashed sessions, templates and
 
 Queue claims and prompt-version changes use atomic conditional updates. Workers share a MongoDB slot limit (`AGENT_CONCURRENCY`, identical on every instance). A step has a 90-second lease renewed every 15 seconds. A missing/expired worker is marked interrupted, **never automatically resubmitted to an image provider**. This avoids retrying a paid request whose outcome is unknown; it does not claim exactly-once execution across third-party services. Queued steps survive restart. Stable step IDs repair gaps between storing a run and enqueuing its steps without creating duplicates.
 
-To scale API replicas without running image work on them, set `AGENT_WORKER_ENABLED=false`; run one or more instances with workers enabled against the same database and R2 configuration. Existing legacy `ImageJobsService` endpoints still use their original in-memory jobs and should remain on one API instance until migrated. Agent state/storage itself does not depend on local files.
+To scale API replicas without running image work on them, set `QUEUE_WORKER_ENABLED=false`; run one or more instances with workers enabled against the same database and R2 configuration. Legacy tools also use shared Redis/BullMQ dispatch with durable encrypted MongoDB input; see [queue operations](queue.md). Agent state/storage itself does not depend on local files.
 
-Cancel stops work not yet submitted. Requests already submitted may finish and incur charges. Retry is explicit: selected completed/failed/interrupted images become a new draft for inspection. No automatic paid repair loops are enabled. Maximum 20 image tasks per run and three active runs per account are application bounds, not billing estimates.
+Cancel stops work not yet submitted. Requests already submitted may finish and incur charges. Retry is explicit: selected completed/failed/interrupted images become a new draft for inspection. No automatic paid repair loops are enabled. Maximum 20 image tasks per run; shared queue admission/concurrency limits are documented in [queue operations](queue.md).
 
 Every step has a request ID, run ID and step ID in the existing private audit journal. Actual provider billing is not inferred if usage is unavailable. Replica deployments need centralized log collection or access to each instance's journal. The old diagnostic archive retains its existing retention/access rules.
 
@@ -96,7 +96,7 @@ Every step has a request ID, run ID and step ID in the existing private audit jo
 - `GET|POST /api/agent/assets`, `GET /assets/:id/content`, `PATCH /assets/:id/review`
 - `GET|POST /api/agent/templates`
 
-Protected routes require `Authorization: Bearer <session-token>`. Browser tokens live in session storage and expire after the configured session duration. Legacy routes retain their existing access policy; this release does not add authentication to the old tools.
+Protected routes require `Authorization: Bearer <session-token>`. Browser tokens live in session storage and expire after the configured session duration. Legacy AI tools also require this session. The UI gates the whole workspace, including direct links, until session verification succeeds.
 
 ## Verification
 

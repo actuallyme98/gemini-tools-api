@@ -14,7 +14,15 @@ import {
 import { randomUUID } from 'node:crypto';
 import * as os from 'node:os';
 import { ApiError } from '../common/api-error';
-import type { Conversation, Entity, Step } from './agent.types';
+import type {
+  CompanySettings,
+  Conversation,
+  Entity,
+  MessageRecord,
+  Step,
+  Run,
+} from './agent.types';
+import { decodeCursor, encodeCursor } from './agent-pagination';
 
 interface StoredRecord extends Document {
   kind: string;
@@ -36,7 +44,8 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
     this.enabled = config.get<boolean>('AGENT_ENABLED', false);
   }
   async onModuleInit() {
-    if (!this.enabled) return;
+    if (!this.enabled && !this.config.get<boolean>('QUEUE_ENABLED', true))
+      return;
     this.client = new MongoClient(
       this.config.getOrThrow<string>('MONGODB_URI'),
       {
@@ -56,9 +65,19 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
     );
     await this.records.createIndexes([
       { key: { kind: 1, id: 1 }, unique: true },
+      { key: { kind: 1, updatedAt: -1, id: -1 } },
       { key: { kind: 1, owner: 1, updatedAt: -1 } },
       { key: { kind: 1, owner: 1, 'data.state': 1, updatedAt: 1 } },
       { key: { kind: 1, owner: 1, 'data.conversationId': 1, updatedAt: -1 } },
+      {
+        key: {
+          kind: 1,
+          owner: 1,
+          'data.conversationId': 1,
+          'data.position': -1,
+        },
+      },
+      { key: { kind: 1, owner: 1, 'data.createdAt': -1, id: -1 } },
       { key: { kind: 1, owner: 1, 'data.runId': 1 } },
       { key: { kind: 1, 'data.runId': 1 } },
       { key: { kind: 1, 'data.state': 1, updatedAt: 1 } },
@@ -68,7 +87,16 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
         partialFilterExpression: { kind: 'user' },
       },
       { key: { expiresAt: 1 }, expireAfterSeconds: 0 },
+      {
+        key: { 'data.googleSub': 1 },
+        unique: true,
+        partialFilterExpression: {
+          kind: 'user',
+          'data.googleSub': { $type: 'string' },
+        },
+      },
     ]);
+    await this.migrateChatHistory();
   }
   private database() {
     if (!this.records)
@@ -96,7 +124,7 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
       owner: value.owner,
       data: value,
       updatedAt: new Date(),
-      ...(kind === 'session'
+      ...(['session', 'google-nonce'].includes(kind)
         ? {
             expiresAt: new Date(
               (value as unknown as { expiresAt: number }).expiresAt,
@@ -216,7 +244,180 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
   async remove(kind: string, id: string) {
     await this.database().deleteOne({ kind, id });
   }
-  async claim(): Promise<Step | undefined> {
+  async revokeUserSessions(owner: string) {
+    return (await this.database().deleteMany({ kind: 'session', owner }))
+      .deletedCount;
+  }
+  async firstAdministrator() {
+    return (
+      await this.database().findOne(
+        { kind: 'user', 'data.role': 'admin', 'data.disabled': { $ne: true } },
+        { sort: { 'data.createdAt': 1, id: 1 } },
+      )
+    )?.data;
+  }
+  async adminPage<T>(
+    kind: string,
+    fields: Record<string, unknown>,
+    page: number,
+    limit: number,
+  ) {
+    const filter = {
+      kind,
+      ...Object.fromEntries(
+        Object.entries(fields).map(([key, value]) => [
+          key === 'owner' || key === 'id' ? key : `data.${key}`,
+          value,
+        ]),
+      ),
+    };
+    const [rows, total] = await Promise.all([
+      this.database()
+        .find(filter)
+        .sort({ updatedAt: -1, id: -1 })
+        .skip((page - 1) * limit)
+        .limit(limit)
+        .toArray(),
+      this.database().countDocuments(filter, { maxTimeMS: 5000 }),
+    ]);
+    return { items: rows.map((row) => row.data as T), total, page, limit };
+  }
+  async adminUsage(owners: string[]) {
+    return this.database()
+      .aggregate<{ owner: string; kind: string; count: number; bytes: number }>(
+        [
+          {
+            $match: {
+              owner: { $in: owners },
+              kind: { $in: ['run', 'asset', 'session'] },
+              $or: [
+                { kind: { $ne: 'session' } },
+                { 'data.expiresAt': { $gt: Date.now() } },
+              ],
+            },
+          },
+          {
+            $group: {
+              _id: { owner: '$owner', kind: '$kind' },
+              count: { $sum: 1 },
+              bytes: { $sum: { $ifNull: ['$data.bytes', 0] } },
+            },
+          },
+          {
+            $project: {
+              _id: 0,
+              owner: '$_id.owner',
+              kind: '$_id.kind',
+              count: 1,
+              bytes: 1,
+            },
+          },
+        ],
+        { maxTimeMS: 5000 },
+      )
+      .toArray();
+  }
+  async adminSnapshot() {
+    const [result] = await this.database()
+      .aggregate<{
+        totals: { _id: string; count: number }[];
+        runs: { _id: string; count: number }[];
+        steps: { _id: string; count: number }[];
+        storage: { count: number; bytes: number; backups: number }[];
+        daily: { _id: string; count: number }[];
+        sessions: { count: number }[];
+      }>(
+        [
+          {
+            $match: {
+              kind: {
+                $in: ['user', 'run', 'step', 'asset', 'template', 'session'],
+              },
+            },
+          },
+          {
+            $facet: {
+              totals: [{ $group: { _id: '$kind', count: { $sum: 1 } } }],
+              runs: [
+                { $match: { kind: 'run' } },
+                { $group: { _id: '$data.state', count: { $sum: 1 } } },
+              ],
+              steps: [
+                { $match: { kind: 'step' } },
+                { $group: { _id: '$data.state', count: { $sum: 1 } } },
+              ],
+              storage: [
+                { $match: { kind: 'asset' } },
+                {
+                  $group: {
+                    _id: null,
+                    count: { $sum: 1 },
+                    bytes: { $sum: '$data.bytes' },
+                    backups: {
+                      $sum: {
+                        $cond: [
+                          {
+                            $regexMatch: {
+                              input: '$data.storageKey',
+                              regex: '^mongo:',
+                            },
+                          },
+                          1,
+                          0,
+                        ],
+                      },
+                    },
+                  },
+                },
+              ],
+              daily: [
+                {
+                  $match: {
+                    kind: 'run',
+                    'data.createdAt': {
+                      $gte: new Date(Date.now() - 7 * 86400000).toISOString(),
+                    },
+                  },
+                },
+                {
+                  $group: {
+                    _id: { $substrBytes: ['$data.createdAt', 0, 10] },
+                    count: { $sum: 1 },
+                  },
+                },
+                { $sort: { _id: 1 } },
+              ],
+              sessions: [
+                {
+                  $match: {
+                    kind: 'session',
+                    'data.expiresAt': { $gt: Date.now() },
+                  },
+                },
+                { $count: 'count' },
+              ],
+            },
+          },
+        ],
+        { maxTimeMS: 5000 },
+      )
+      .toArray();
+    return result;
+  }
+  async consumeGoogleNonce(id: string) {
+    const result = await this.database().deleteOne({
+      kind: 'google-nonce',
+      id,
+      'data.expiresAt': { $gt: Date.now() },
+    });
+    return result.deletedCount === 1;
+  }
+  async claim(id?: string, owner?: string): Promise<Step | undefined> {
+    if (
+      (await this.find<CompanySettings>('company-settings', 'company'))
+        ?.queuePaused
+    )
+      return;
     const count = this.config.get<number>('AGENT_CONCURRENCY', 3);
     for (let index = 0; index < count; index++)
       await this.ensure('slot', {
@@ -243,7 +444,7 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
     );
     if (!slot) return;
     const row = await this.database().findOneAndUpdate(
-      { kind: 'step', 'data.state': 'queued' },
+      { kind: 'step', 'data.state': 'queued', ...(id ? { id, owner } : {}) },
       {
         $set: {
           'data.state': 'running',
@@ -292,38 +493,152 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
         { slotToken: step.slotToken },
       );
   }
+  async releaseAdmission(id: string, owner: string, phase: string) {
+    await this.database().updateOne(
+      { kind: 'run', id, owner, 'data.queueAdmission': phase },
+      { $set: { 'data.queueAdmissionReleased': true } },
+    );
+  }
   async appendMessage(
     conversationId: string,
     owner: string,
     message: Conversation['messages'][number],
   ) {
-    await this.database().updateOne(
-      {
-        kind: 'conversation',
-        id: conversationId,
-        owner,
-        'data.messages.id': { $ne: message.id },
-      },
-      [
-        {
-          $set: {
-            'data.messages': {
-              $slice: [
-                {
-                  $concatArrays: [
-                    { $ifNull: ['$data.messages', []] },
-                    { $literal: [message] },
-                  ],
-                },
-                -200,
-              ],
-            },
-            'data.updatedAt': new Date().toISOString(),
-            updatedAt: new Date(),
+    await this.get<Conversation>('conversation', conversationId, owner);
+    if (message.role === 'user' && message.runId && !message.attachments) {
+      const run = await this.find<Run>('run', message.runId);
+      if (run?.owner === owner && run.conversationId === conversationId)
+        message = {
+          ...message,
+          attachments: {
+            sourceIds: run.sourceIds,
+            targetIds: run.targetIds,
+            templateIds: run.templateIds,
           },
+        };
+    }
+    await this.ensure('message', {
+      id: `${conversationId}:${message.id}`,
+      owner,
+      createdAt: message.createdAt,
+      updatedAt: message.createdAt,
+      conversationId,
+      position: `${message.createdAt}|${message.id}`,
+      message,
+    } satisfies MessageRecord);
+    await this.database().updateOne(
+      { kind: 'conversation', id: conversationId, owner },
+      {
+        $set: {
+          'data.updatedAt': new Date().toISOString(),
+          updatedAt: new Date(),
         },
-      ],
+      },
     );
+  }
+  private async migrateChatHistory() {
+    const cursor = this.database().find({
+      kind: 'conversation',
+      'data.messages.0': { $exists: true },
+    });
+    for await (const record of cursor) {
+      const conversation = record.data as Conversation;
+      for (const message of conversation.messages)
+        await this.appendMessage(conversation.id, conversation.owner, message);
+      // Remove the embedded copy only after every original message is durably archived.
+      await this.database().updateOne(
+        {
+          kind: 'conversation',
+          id: conversation.id,
+          'data.messages': conversation.messages,
+        },
+        { $set: { 'data.messages': [] } },
+      );
+    }
+  }
+  async messageRecords(
+    owner: string,
+    conversationId: string,
+    options: {
+      before?: string;
+      after?: string;
+      until?: string;
+      limit?: number;
+      ascending?: boolean;
+    } = {},
+  ) {
+    const position = {
+      ...(options.before ? { $lt: options.before } : {}),
+      ...(options.after ? { $gt: options.after } : {}),
+      ...(options.until ? { $lte: options.until } : {}),
+    };
+    return (
+      await this.database()
+        .find({
+          kind: 'message',
+          owner,
+          'data.conversationId': conversationId,
+          ...(Object.keys(position).length
+            ? { 'data.position': position }
+            : {}),
+        })
+        .sort({ 'data.position': options.ascending ? 1 : -1 })
+        .limit(options.limit ?? 40)
+        .toArray()
+    ).map((record) => record.data as MessageRecord);
+  }
+  async messagePage(
+    owner: string,
+    conversationId: string,
+    before?: string,
+    limit = 40,
+  ) {
+    await this.get<Conversation>('conversation', conversationId, owner);
+    const records = await this.messageRecords(owner, conversationId, {
+      before: decodeCursor(before),
+      limit: limit + 1,
+    });
+    const hasMore = records.length > limit;
+    const page = records.slice(0, limit).reverse();
+    return {
+      items: page.map((record) => record.message),
+      hasMore,
+      nextCursor: hasMore ? encodeCursor(page[0].position) : null,
+    };
+  }
+  async conversationPage(owner: string, before?: string, limit = 30) {
+    const boundary = decodeCursor(before);
+    const [date, id] = boundary?.split('|') ?? [];
+    const records = await this.database()
+      .find(
+        {
+          kind: 'conversation',
+          owner,
+          ...(boundary
+            ? {
+                $or: [
+                  { 'data.createdAt': { $lt: date } },
+                  { 'data.createdAt': date, id: { $lt: id } },
+                ],
+              }
+            : {}),
+        },
+        { projection: { 'data.messages': 0 } },
+      )
+      .sort({ 'data.createdAt': -1, id: -1 })
+      .limit(limit + 1)
+      .toArray();
+    const hasMore = records.length > limit;
+    const items = records
+      .slice(0, limit)
+      .map((record) => record.data as Conversation);
+    const last = items.at(-1);
+    return {
+      items,
+      hasMore,
+      nextCursor:
+        hasMore && last ? encodeCursor(`${last.createdAt}|${last.id}`) : null,
+    };
   }
   async loginAttempt(id: string) {
     const now = new Date();
@@ -373,7 +688,7 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
     });
     return stream.id.toHexString();
   }
-  async readImageBackup(id: string) {
+  async readImageBackup(id: string, maxBytes = 32 * 1024 * 1024) {
     this.database();
     const stream = this.images.openDownloadStream(new ObjectId(id));
     return new Promise<Buffer>((resolve, reject) => {
@@ -381,13 +696,16 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
       const chunks: Buffer[] = [];
       stream.on('data', (chunk: Buffer) => {
         bytes += chunk.length;
-        if (bytes > 32 * 1024 * 1024)
+        if (bytes > maxBytes)
           stream.destroy(new Error('Invalid image backup size'));
         else chunks.push(chunk);
       });
       stream.once('error', reject);
       stream.once('end', () => resolve(Buffer.concat(chunks)));
     });
+  }
+  async deleteImageBackup(id: string) {
+    await this.images?.delete(new ObjectId(id));
   }
   async onApplicationShutdown() {
     await this.client?.close();

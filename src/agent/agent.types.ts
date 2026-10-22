@@ -6,11 +6,31 @@ export interface Entity {
 }
 export interface AgentUser extends Entity {
   email: string;
-  passwordHash: string;
+  passwordHash?: string;
+  googleSub?: string;
+  disabled?: boolean;
+  authVersion?: number;
+  lastLoginAt?: string;
   role: 'admin' | 'designer';
 }
 export interface Session extends Entity {
   expiresAt: number;
+  authVersion?: number;
+}
+export interface CompanySettings extends Entity {
+  name: string;
+  protectedAdminId: string;
+  googleAllowedDomains: string[];
+  googleAutoProvision: boolean;
+  queuePaused: boolean;
+}
+export interface AdminAudit extends Entity {
+  actorEmail: string;
+  action: string;
+  target: string;
+  details: Record<string, unknown>;
+  outcome: 'pending' | 'success' | 'failed';
+  errorCode?: string;
 }
 export interface Asset extends Entity {
   name: string;
@@ -49,13 +69,60 @@ export interface MockupTemplate extends Entity {
 }
 export interface Conversation extends Entity {
   title: string;
+  pinnedRequirements?: string[];
   messages: {
     id: string;
     role: 'user' | 'assistant';
     text: string;
     createdAt: string;
     runId?: string;
+    attachments?: {
+      sourceIds: string[];
+      targetIds: string[];
+      templateIds: string[];
+    };
   }[];
+}
+export type ChatMessage = Conversation['messages'][number];
+export interface MessageRecord extends Entity {
+  conversationId: string;
+  position: string;
+  message: ChatMessage;
+}
+export interface ConversationMemory extends Entity {
+  summary: string;
+  through?: string;
+  messageCount: number;
+}
+export interface WorkflowStep {
+  name: string;
+  operation: Exclude<Operation, 'auto'>;
+  instructions: string;
+  source: 'initial' | 'previous';
+  count: number;
+}
+export interface CustomWorkflow extends Entity {
+  name: string;
+  description: string;
+  revision: number;
+  steps: WorkflowStep[];
+  archived: boolean;
+}
+export interface WorkflowExecution extends Entity {
+  conversationId: string;
+  workflow: CustomWorkflow;
+  brief: string;
+  sourceIds: string[];
+  targetIds: string[];
+  templateIds: string[];
+  productType: string;
+  provider: string;
+  imageModel?: string;
+  runIds: string[];
+  stage: number;
+  research: string;
+  researchSources: Run['researchSources'];
+  validateVisually: boolean;
 }
 export type Operation = 'auto' | 'mockup_ai' | 'mockup_template' | 'design';
 export type RunState =
@@ -78,6 +145,22 @@ export interface PlanItem {
   templateSnapshot?: MockupTemplate;
 }
 export interface Run extends Entity {
+  queueAdmission?: 'plan' | 'image';
+  queueAdmissionReleased?: boolean;
+  workflow?: {
+    executionId: string;
+    name: string;
+    revision: number;
+    stage: number;
+    total: number;
+  };
+  context?: {
+    estimatedTokens: number;
+    budget: number;
+    recentMessages: number;
+    summarizedMessages: number;
+    compactedAt?: string;
+  };
   queuePrepared?: boolean;
   conversationId: string;
   brief: string;

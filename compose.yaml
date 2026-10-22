@@ -5,6 +5,13 @@ services:
     environment:
       PORT: 5177
       AUDIT_LOG_DIR: /app/logs
+      REDIS_URL: redis://queue-redis:6379/0
+      MONGODB_URI: mongodb://queue-mongodb:27017
+    depends_on:
+      queue-redis:
+        condition: service_healthy
+      queue-mongodb:
+        condition: service_healthy
     volumes:
       - api-logs:/app/logs
     ports:
@@ -17,6 +24,27 @@ services:
       - "5173:80"
     depends_on:
       - api
+  queue-redis:
+    image: redis:7.4-alpine
+    command: ['redis-server', '--appendonly', 'yes', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - queue-redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+  queue-mongodb:
+    image: mongo:8
+    volumes:
+      - queue-mongodb-data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--quiet', '--eval', 'db.adminCommand({ping:1}).ok']
+      interval: 5s
+      timeout: 5s
+      retries: 20
 
 volumes:
   api-logs:
+  queue-redis-data:
+  queue-mongodb-data:

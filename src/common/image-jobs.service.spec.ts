@@ -1,90 +1,47 @@
+import { ConfigService } from '@nestjs/config';
 import { ImageJobsService } from './image-jobs.service';
-import { ApiError } from '../common/api-error';
+import { AgentStore } from '../agent/agent.store';
+import { TaskQueueService } from '../queue/task-queue.service';
+import { ApiError } from './api-error';
 
-const tick = async () => {
-  await Promise.resolve();
-  await Promise.resolve();
-};
-
-describe('Background image jobs', () => {
-  afterEach(() => jest.restoreAllMocks());
-
-  it('keeps a single task alive beyond proxy timeouts, returns its trace, then expires it', async () => {
-    const jobs = new ImageJobsService();
-    let finish!: (value: { url: string; mimeType: string }) => void;
-    const work = jest.fn(
-      () =>
-        new Promise<{ url: string; mimeType: string }>((resolve) => {
-          finish = resolve;
-        }),
+describe('Durable image job admission', () => {
+  it('does not reserve or enqueue work for a reused ID owned by another employee', async () => {
+    const reserve = jest.fn();
+    const publish = jest.fn();
+    const jobs = new ImageJobsService(
+      {
+        find: jest
+          .fn()
+          .mockResolvedValue({ owner: 'another-user', inputHash: 'different' }),
+      } as unknown as AgentStore,
+      { reserve, publish } as unknown as TaskQueueService,
+      new ConfigService(),
     );
-    const started = jobs.create(work, 'original-request');
-    await tick();
-    const now = Date.now();
-    jest.spyOn(Date, 'now').mockReturnValue(now + 150000);
-    expect(jobs.get(started.jobId).state).toBe('pending');
-    expect(work).toHaveBeenCalledTimes(1);
-    finish({ url: 'https://cdn.example/result.png', mimeType: 'image/png' });
-    await tick();
-    expect(jobs.get(started.jobId)).toMatchObject({
-      state: 'done',
-      result: {
-        requestId: 'original-request',
-        url: 'https://cdn.example/result.png',
-      },
-    });
-    expect(work).toHaveBeenCalledTimes(1);
-    jest.spyOn(Date, 'now').mockReturnValue(now + 150000 + 3600001);
-    expect(() => jobs.get(started.jobId)).toThrow(ApiError);
+    await expect(
+      jobs.create(
+        { operation: 'mockup', images: [], prompt: 'test' },
+        'request',
+        'employee',
+        'same-id',
+      ),
+    ).rejects.toThrow(ApiError);
+    expect(reserve).not.toHaveBeenCalled();
+    expect(publish).not.toHaveBeenCalled();
   });
-
-  it('preserves useful AI errors and redacts credentials', async () => {
-    const jobs = new ImageJobsService();
-    const job = jobs.create(
-      () =>
-        Promise.reject(
-          new ApiError(429, 'AI_RATE_LIMITED', 'Slow down sk-secret123456789', {
-            retryable: true,
-            upstreamStatus: 429,
-          }),
-        ),
-      'trace-error',
+  it('returns unavailable before saving any input when Redis admission fails', async () => {
+    const ensure = jest.fn();
+    const reserve = jest.fn().mockRejectedValue(new Error('Queue unavailable'));
+    const jobs = new ImageJobsService(
+      {
+        find: jest.fn().mockResolvedValue(undefined),
+        ensure,
+      } as unknown as AgentStore,
+      { reserve } as unknown as TaskQueueService,
+      new ConfigService(),
     );
-    await tick();
-    await tick();
-    expect(jobs.get(job.jobId)).toMatchObject({
-      state: 'failed',
-      error: {
-        statusCode: 429,
-        code: 'AI_RATE_LIMITED',
-        requestId: 'trace-error',
-        upstreamStatus: 429,
-        retryable: true,
-      },
-    });
-    expect(JSON.stringify(jobs.get(job.jobId))).not.toContain('sk-secret');
-  });
-
-  it('bounds concurrent paid tasks and accepts work again after completion', async () => {
-    const jobs = new ImageJobsService();
-    let finish!: (value: { url: string; mimeType: string }) => void;
-    jobs.create(
-      () =>
-        new Promise((resolve) => {
-          finish = resolve;
-        }),
-      'first',
-    );
-    for (let i = 1; i < 6; i++)
-      jobs.create(() => new Promise(() => {}), String(i));
-    expect(() =>
-      jobs.create(() => Promise.resolve({ url: '', mimeType: '' }), 'overflow'),
-    ).toThrow(ApiError);
-    await tick();
-    finish({ url: 'done', mimeType: 'image/png' });
-    await tick();
-    expect(() =>
-      jobs.create(() => Promise.resolve({ url: '', mimeType: '' }), 'next'),
-    ).not.toThrow();
+    await expect(
+      jobs.create({ operation: 'analyze', images: [] }, 'request', 'employee'),
+    ).rejects.toThrow('Queue unavailable');
+    expect(ensure).not.toHaveBeenCalled();
   });
 });

@@ -1,3 +1,6 @@
+import { TaskQueueService } from '../src/queue/task-queue.service';
+import { AgentGuard } from '../src/agent/agent-auth.service';
+import { queueFixture } from './queue-fixture';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
@@ -69,6 +72,7 @@ const adapter = (id: string, capabilities: AIProvider['capabilities']) => ({
 
 describe('Client-selected provider routing', () => {
   let app: INestApplication;
+  let queueEnv: Awaited<ReturnType<typeof queueFixture>>;
   const gemini = adapter('gemini', ['text', 'vision', 'image']);
   const textOnly = adapter('text-only', ['text']);
   const shopaikey = adapter('shopaikey', ['text', 'vision', 'image']);
@@ -88,6 +92,7 @@ describe('Client-selected provider routing', () => {
     offline.validateConfiguration.mockImplementation(() => {
       throw new Error('secret API key');
     });
+    queueEnv = await queueFixture(config);
     const module = await Test.createTestingModule({
       imports: [MockupModule, IdeaModule, BackgroundModule],
       providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
@@ -100,6 +105,10 @@ describe('Client-selected provider routing', () => {
       .useValue([gemini, textOnly, shopaikey, offline])
       .overrideProvider(R2Service)
       .useValue({ upload })
+      .overrideProvider(TaskQueueService)
+      .useValue(queueEnv.queue)
+      .overrideGuard(AgentGuard)
+      .useValue(queueEnv.guard)
       .compile();
     app = module.createNestApplication({ logger: false });
     app.setGlobalPrefix('api');
@@ -107,8 +116,12 @@ describe('Client-selected provider routing', () => {
       new ValidationPipe({ transform: true, whitelist: true }),
     );
     await app.init();
+    await queueEnv.seed(app);
   });
-  afterAll(async () => app.close());
+  afterAll(async () => {
+    await app?.close();
+    await queueEnv?.close();
+  });
   beforeEach(() => jest.clearAllMocks());
   const post = (
     endpoint: string,

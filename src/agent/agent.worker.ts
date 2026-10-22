@@ -3,34 +3,41 @@ import {
   Logger,
   OnApplicationBootstrap,
   OnModuleDestroy,
+  OnModuleInit,
   HttpException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { AgentStore } from './agent.store';
 import { AgentService } from './agent.service';
 import { AuditLogService } from '../audit/audit-log.service';
 import { sanitizeErrorMessage } from '../common/error-sanitizer';
-import type { Run, Step } from './agent.types';
+import type { AgentUser, Run, Step } from './agent.types';
+import { TaskQueueService, QueueDeferred } from '../queue/task-queue.service';
 
 @Injectable()
-export class AgentWorker implements OnApplicationBootstrap, OnModuleDestroy {
+export class AgentWorker
+  implements OnApplicationBootstrap, OnModuleDestroy, OnModuleInit
+{
   private readonly logger = new Logger(AgentWorker.name);
   private timer?: ReturnType<typeof setInterval>;
   private busy = false;
   private stopping = false;
-  private active = new Set<Promise<void>>();
   constructor(
     private readonly store: AgentStore,
     private readonly agent: AgentService,
     private readonly audit: AuditLogService,
-    private readonly config: ConfigService,
+    private readonly queue: TaskQueueService,
   ) {}
+  onModuleInit() {
+    this.queue.register('agent', async (task) => {
+      const pending = await this.store.get<Step>('step', task.id, task.owner);
+      if (pending.state !== 'queued') return;
+      const step = await this.store.claim(task.id, task.owner);
+      if (!step) throw new QueueDeferred();
+      await this.execute(step);
+    });
+  }
   onApplicationBootstrap() {
-    if (
-      !this.store.enabled ||
-      !this.config.get<boolean>('AGENT_WORKER_ENABLED', true)
-    )
-      return;
+    if (!this.store.enabled || !this.queue.enabled) return;
     this.timer = setInterval(
       () =>
         void this.tick().catch(() =>
@@ -82,21 +89,33 @@ export class AgentWorker implements OnApplicationBootstrap, OnModuleDestroy {
         100,
       ))
         await this.agent.ensureSteps(run);
-      while (
-        this.active.size < this.config.get<number>('AGENT_CONCURRENCY', 3) &&
-        !this.stopping
-      ) {
-        const step = await this.store.claim();
-        if (!step) break;
-        const promise = this.execute(step)
-          .catch(() =>
-            this.logger.error(
-              'Agent step update failed; lease recovery will retain its uncertain outcome.',
-            ),
-          )
-          .finally(() => this.active.delete(promise));
-        this.active.add(promise);
-      }
+      const pending = await this.store.query<Step>(
+        'step',
+        { state: 'queued' },
+        1000,
+      );
+      const pendingRuns = new Map<string, Step>();
+      for (const step of pending) pendingRuns.set(step.runId, step);
+      for (const step of pendingRuns.values())
+        await this.queue.touch(
+          `agent-${step.runId}-${step.type === 'plan' ? 'plan' : 'image'}`,
+          step.owner,
+        );
+      for (const step of pending)
+        await this.queue.publish({
+          kind: 'agent',
+          id: step.id,
+          owner: step.owner,
+        });
+      for (const run of await this.store.query<Run>(
+        'run',
+        {
+          queueAdmissionReleased: false,
+          state: { $nin: ['planning', 'queued', 'running'] },
+        },
+        1000,
+      ))
+        await this.releaseAdmission(run, run.queueAdmission);
     } finally {
       this.busy = false;
     }
@@ -137,6 +156,18 @@ export class AgentWorker implements OnApplicationBootstrap, OnModuleDestroy {
             imageModel: run.imageModel,
           });
           try {
+            if (
+              (await this.store.get<AgentUser>('user', run.owner, run.owner))
+                .disabled
+            )
+              throw new HttpException(
+                {
+                  code: 'AGENT_ACCOUNT_DISABLED',
+                  message:
+                    'Tài khoản đã bị khóa; không gửi tác vụ tiếp theo đến AI.',
+                },
+                403,
+              );
             if (step.type === 'plan') await this.agent.plan(run);
             else {
               await this.store.patch<Run>(
@@ -222,6 +253,7 @@ export class AgentWorker implements OnApplicationBootstrap, OnModuleDestroy {
                 'AI_QUOTA_EXCEEDED',
                 'AI_BILLING_BLOCKED',
                 'AI_PERMISSION_DENIED',
+                'AGENT_ACCOUNT_DISABLED',
               ].includes(code) ||
               code.startsWith('STORAGE_')
             )
@@ -233,17 +265,20 @@ export class AgentWorker implements OnApplicationBootstrap, OnModuleDestroy {
     } finally {
       clearInterval(heartbeat);
       await this.store.release(step);
+      const run = await this.store.get<Run>('run', step.runId, step.owner);
+      if (step.type === 'plan' || !['queued', 'running'].includes(run.state))
+        await this.releaseAdmission(
+          run,
+          step.type === 'plan' ? 'plan' : 'image',
+        );
     }
   }
-  async onModuleDestroy() {
+  private async releaseAdmission(run: Run, phase: 'plan' | 'image') {
+    await this.queue.release(`agent-${run.id}-${phase}`, run.owner);
+    await this.store.releaseAdmission(run.id, run.owner, phase);
+  }
+  onModuleDestroy() {
     this.stopping = true;
     if (this.timer) clearInterval(this.timer);
-    await Promise.race([
-      Promise.allSettled([...this.active]),
-      new Promise((resolve) => {
-        const timer = setTimeout(resolve, 25000);
-        timer.unref();
-      }),
-    ]);
   }
 }

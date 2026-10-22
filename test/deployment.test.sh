@@ -15,6 +15,7 @@ cat > "$TEMP/bin/docker" <<'MOCK'
 #!/usr/bin/env bash
 set -euo pipefail
 printf '%s\n' "$*" >> "$TRACE"
+if [[ "$*" == *" config --services" ]]; then printf 'api\napp\nworker\nqueue-redis\n'; fi
 if [[ "$*" == *" up "* ]]; then
   args=("$@")
   for ((i=0; i<${#args[@]}; i++)); do
@@ -22,7 +23,7 @@ if [[ "$*" == *" up "* ]]; then
       cat "${args[i+1]}" >> "$TRACE"
     fi
   done
-  if [[ -f "$FAIL_UP" ]]; then rm -f "$FAIL_UP"; exit 1; fi
+  if [[ -f "$FAIL_UP" && "$*" != *" queue-redis" ]]; then rm -f "$FAIL_UP"; exit 1; fi
   sleep "${UP_DELAY:-0}"
 fi
 if [[ "$*" == *" pull "* && -f "$FAIL_PULL" ]]; then rm -f "$FAIL_PULL"; exit 1; fi
@@ -60,9 +61,11 @@ passed 'frontend requires an existing API deployment'
 run api "$API1" "$CONFIG"
 assert_image API_IMAGE "$API1"
 grep -Fxq 'APP_IMAGE=' "$ROOT/.images.env"
-grep -q ' up .* api$' "$TRACE"
+grep -q ' up .* api worker$' "$TRACE"
+grep -q ' up .* queue-redis$' "$TRACE"
+grep -q ' pull api worker$' "$TRACE"
 if grep -q ' up .* app$' "$TRACE"; then exit 1; fi
-passed 'first API release starts only API'
+passed 'first API release starts API, worker and durable Redis'
 
 run app "$APP1"
 assert_image API_IMAGE "$API1"
@@ -118,6 +121,6 @@ echo 'FAKE_ENV=for-tests-only' > "$ROOT/.env"
 touch "$FAIL_UP"
 expect_failure api "$API1" "$CONFIG"
 [[ ! -f "$ROOT/.images.env" ]]
-grep -q ' rm -f api$' "$TRACE"
+grep -q ' rm -f api worker$' "$TRACE"
 if grep -Eq ' (down|prune)( |$)|ezihubb' "$TRACE"; then exit 1; fi
 passed 'failed first release removes only its own service'

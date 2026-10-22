@@ -1,6 +1,8 @@
 # Hợp đồng API và frontend
 
-Frontend nằm tại ../gemini-tools-app; cấu hình provider tại docs/ai-providers.md. Không gửi API key từ frontend.
+Frontend nằm tại ../gemini-tools-app; cấu hình provider tại docs/ai-providers.md. Không gửi API key từ frontend. Tất cả công cụ AI yêu cầu Bearer session; UI chỉ mở workspace sau khi xác minh phiên. Nhân viên không thấy menu quản trị và API vẫn kiểm tra quyền riêng.
+
+Các POST hỗ trợ `async=true`, trả HTTP 202 `{jobId,requestId,state}` sau khi lưu đầu vào. Client gửi UUID v4 `Idempotency-Key`, đọc `/api/image-jobs/:id` đến khi có kết quả đúng kiểu trong bảng dưới. GET `/api/image-jobs` trả 100 việc gần nhất của tài khoản, POST `/api/image-jobs/:id/cancel` hủy việc chưa chạy. Xem [hàng đợi dùng chung](queue.md).
 
 Các endpoint POST nhận multipart/form-data:
 
@@ -17,7 +19,7 @@ Các endpoint POST nhận multipart/form-data:
 
 [Mockup Studio](background-studio.md) áp hình in/họa tiết từ sản phẩm gốc lên sản phẩm trong ảnh tham chiếu, giữ nguyên cảnh; xử lý hàng đợi từng cặp ảnh và giữ kết quả thành công khi thử lại.
 
-Mockup Generator gửi riêng từng prompt, tối đa 3 tác vụ đồng thời. Kết quả hiện ngay khi xong, giữ đúng số thứ tự ảnh dù hoàn tất khác thứ tự; lỗi một ảnh không xóa ảnh khác. Retry chỉ ảnh lỗi/tạm dừng, dùng prompt và file đã lưu theo bộ, cùng provider/model chọn lúc retry. Lỗi billing/quota/storage hoặc CDN chưa cho phép dừng gửi ảnh tiếp theo, giữ tác vụ đang chạy. Client dùng chung cơ chế polling mỗi 2 giây, chỉ retry GET khi mạng lỗi, không tự gửi lại POST. Dừng hủy việc chờ ở client; tác vụ API đã nhận vẫn tiếp tục và có thể tính phí. Kho tác vụ dùng chung với Mockup Studio: tối đa 6 đang chạy, trạng thái hoàn tất giữ 1 giờ trong một tiến trình; restart API mất trạng thái.
+Mockup Generator gửi riêng từng prompt, tối đa 3 yêu cầu đồng thời từ một tab. Worker áp dụng thêm giới hạn toàn hệ thống và từng nhân viên, dùng chung giữa tab. Kết quả hiện khi xong, giữ đúng thứ tự; lỗi một ảnh không xóa ảnh khác. Retry chỉ ảnh lỗi/tạm dừng theo thao tác người dùng. Client polling mỗi 2 giây, chỉ retry GET khi mạng lỗi, không tự gửi lại POST. Dừng phía client không hủy việc API đã tiếp nhận. Trạng thái lưu MongoDB và tiếp tục đọc được sau restart; không còn kho tác vụ trong RAM.
 
 ShopAIKey Gemini có thể trả Markdown link ảnh thay vì inline base64. Adapter tải link HTTPS từ hostname nằm trong `SHOPAIKEY_IMAGE_DOWNLOAD_HOSTS` (mặc định `image.chr1.com,direct.shopaikey.com,api.shopaikey.com`), không gửi Authorization hoặc theo redirect. Giới hạn 32MB kể cả stream thiếu Content-Length, kiểm tra chữ ký PNG/JPEG/WebP. Tải lỗi tạm thời thử lại tối đa một lần, độc lập với tạo ảnh; không tự gọi model lại khi lỗi tải ảnh. Images API GPT/Grok cũng nhận được cả `b64_json` và `url`. Giữ lỗi `AI_NO_IMAGE` cho phản hồi thực sự không có ảnh; mã chặn nội dung được trả riêng.
 
@@ -25,9 +27,9 @@ Các endpoint tạo/chỉnh ảnh nhận thêm `imageModel` (ID tối đa 128 k�
 
 Mỗi ảnh tối đa 10MB, PNG/JPEG/WebP. API kiểm tra MIME và chữ ký file; request không hợp lệ trả 400, file quá lớn trả 413 trước khi gọi AI. Prompt thủ công tối đa 4000 ký tự/prompt; basePrompt tối đa 20000 ký tự.
 
-variations được thực thi tại IdeaService: mỗi lượt tạo một ảnh và upload R2, tổng số URL đúng số yêu cầu. Retry theo từng lượt, không tạo lại các ảnh trước đó trong cùng request. Ý tưởng yêu cầu AI trả đúng count; response sai cấu trúc/số lượng bị từ chối. Các lời gọi có lỗi xác thực/đầu vào 4xx không retry (trừ 408/429).
+variations được thực thi tại IdeaService: mỗi lượt tạo một ảnh và upload R2, tổng số URL đúng số yêu cầu khi hoàn tất. Không tự retry tạo ảnh nếu provider lỗi hoặc chưa rõ kết quả. Ý tưởng yêu cầu AI trả đúng count; response sai cấu trúc/số lượng bị từ chối. Lời gọi text/tải ảnh/lưu trữ có chính sách retry riêng.
 
-Khi browser ngắt kết nối, batch dừng các bước chưa bắt đầu. Lời gọi provider đang chạy có thể vẫn hoàn thành và tính phí; hủy phía client không bảo đảm thu hồi request upstream.
+Khi browser ngắt kết nối, tác vụ API đã tiếp nhận vẫn chạy trên worker. Dừng phía client chỉ ngừng theo dõi/gửi công việc tiếp theo; hủy việc đang chờ qua endpoint cancel. Lời gọi provider đang chạy có thể vẫn hoàn thành và tính phí.
 
 R2_PRIVATE_URL tùy chọn; nếu bỏ qua, endpoint lấy từ R2_ACCOUNT_ID. R2_PUBLIC_URL phải là địa chỉ đọc được ảnh; cấu hình CORS GET cho origin frontend nếu dùng download trực tiếp từ R2.
 
@@ -51,4 +53,4 @@ docker compose up --build
 ```
 
 Frontend: http://localhost:5173; API: http://localhost:5177/api; Swagger: http://localhost:5177/api/docs.
-Compose không cần Redis service vì các guard Redis hiện chưa được gắn vào endpoint. Biến REDIS_URL vẫn có trong schema để tương thích cấu hình hiện tại.
+Compose local chạy MongoDB và Redis riêng có volume; cần điền khóa mã hóa và cấu hình đăng nhập Agent trước khi sử dụng.

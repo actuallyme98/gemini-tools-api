@@ -51,7 +51,7 @@ export class IdeaService {
             },
             provider,
           ),
-        { signal },
+        { signal, retries: 1 },
       );
 
       const url = await withRetry(() => this.r2Service.upload(editedBuffer), {
@@ -105,7 +105,7 @@ export class IdeaService {
             },
             provider,
           ),
-        { signal },
+        { signal, retries: 1 },
       );
       if (!buffers[0])
         throw new Error('AI provider returned no reference image');

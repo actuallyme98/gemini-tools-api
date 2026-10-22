@@ -10,6 +10,7 @@ import type { Request, Response } from 'express';
 import { Observable } from 'rxjs';
 import { AuditLogService } from './audit-log.service';
 import { sanitizeErrorMessage } from '../common/error-sanitizer';
+import type { AgentRequest } from '../agent/agent-auth.service';
 
 @Injectable()
 export class AuditInterceptor implements NestInterceptor {
@@ -22,6 +23,9 @@ export class AuditInterceptor implements NestInterceptor {
       requestId: randomUUID(),
       method: request.method,
       path: request.path,
+      ...((request as AgentRequest).agentUser
+        ? { actorEmail: (request as AgentRequest).agentUser.email }
+        : {}),
     };
     response.setHeader('X-Request-Id', trace.requestId);
     // Docker health probes are intentionally excluded from the persistent journal.

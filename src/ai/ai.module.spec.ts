@@ -105,6 +105,7 @@ describe('AI module integration', () => {
           load: [
             () => ({
               AI_PROVIDER: 'gemini',
+              QUEUE_ENABLED: false,
               AI_TEXT_PROVIDER: 'shopaikey',
               AI_AUTO_TEXT_ROUTING: false,
             }),

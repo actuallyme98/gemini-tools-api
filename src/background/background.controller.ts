@@ -9,6 +9,8 @@ import {
   Res,
   UploadedFiles,
   UseInterceptors,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
 import { FileFieldsInterceptor } from '@nestjs/platform-express';
 import {
@@ -19,34 +21,34 @@ import {
   ApiAcceptedResponse,
 } from '@nestjs/swagger';
 import type { Response } from 'express';
-import { randomUUID } from 'node:crypto';
 import { multerConfig, requireImage } from '../common/multer.config';
-import { requestSignal } from '../common/request-signal';
 import {
   providerSelectionSchema,
   imageModelSelectionSchema,
 } from '../ai/provider-selection.dto';
-import { BackgroundService } from './background.service';
 import { ImageJobsService } from '../common/image-jobs.service';
+import { storeImage } from '../common/image-task';
+import { AgentGuard, type AgentRequest } from '../agent/agent-auth.service';
 import {
   MAX_BACKGROUND_PROMPT_LENGTH,
   ReplaceBackgroundDto,
 } from './dto/replace-background.dto';
 
 @Controller('backgrounds')
+@UseGuards(AgentGuard)
 export class BackgroundController {
-  constructor(
-    private readonly backgrounds: BackgroundService,
-    private readonly jobs: ImageJobsService,
-  ) {}
+  constructor(private readonly jobs: ImageJobsService) {}
 
   @Get('jobs/:jobId')
   @Header('Cache-Control', 'no-store')
   @ApiOperation({
     summary: 'Poll an image job without repeating image generation.',
   })
-  getJob(@Param('jobId', new ParseUUIDPipe()) jobId: string) {
-    return this.jobs.get(jobId);
+  getJob(
+    @Param('jobId', new ParseUUIDPipe()) jobId: string,
+    @Req() req: AgentRequest,
+  ) {
+    return this.jobs.get(jobId, req.agentUser.id);
   }
 
   @Post('replace')
@@ -123,6 +125,7 @@ export class BackgroundController {
       | undefined,
     @Body() body: ReplaceBackgroundDto,
     @Res({ passthrough: true }) response: Response,
+    @Req() req: AgentRequest,
   ) {
     const params = {
       productImage: requireImage(files?.productImage?.[0], 'Product image'),
@@ -135,25 +138,21 @@ export class BackgroundController {
       provider: body.provider,
       imageModel: body.imageModel,
     };
-    if (body.async === 'true') {
-      const requestId = String(
-        response.getHeader('X-Request-Id') || randomUUID(),
-      );
-      const job = this.jobs.create(
-        () => this.backgrounds.replace(params),
-        requestId,
-      );
-      response.status(202);
-      return job;
-    }
-    const result = await this.backgrounds.replace({
-      ...params,
-      signal: requestSignal(response),
-    });
-    const requestId = response.getHeader('X-Request-Id');
-    return {
-      ...result,
-      ...(requestId ? { requestId: String(requestId) } : {}),
-    };
+    return this.jobs.respond(
+      {
+        operation: 'background',
+        images: [
+          storeImage(params.productImage),
+          storeImage(params.backgroundImage),
+        ],
+        prompt: params.instructions,
+        variationIndex: params.variationIndex,
+        provider: params.provider,
+        imageModel: params.imageModel,
+      },
+      req,
+      response,
+      body.async === 'true',
+    );
   }
 }

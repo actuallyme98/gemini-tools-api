@@ -22,7 +22,7 @@ export class ReplaceBackgroundDto extends ImageProviderSelectionDto {
   })
   @IsOptional()
   @IsIn(['true', 'false'])
-  async?: string;
+  declare async?: string;
 
   @ApiProperty({
     maxLength: MAX_BACKGROUND_PROMPT_LENGTH,

@@ -1,3 +1,7 @@
+import { ConfigService } from '@nestjs/config';
+import { TaskQueueService } from '../src/queue/task-queue.service';
+import { AgentGuard } from '../src/agent/agent-auth.service';
+import { queueFixture } from './queue-fixture';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -53,7 +57,9 @@ const r2 = {
 
 describe('Image API contracts (no external services)', () => {
   let app: INestApplication;
+  let queueEnv: Awaited<ReturnType<typeof queueFixture>>;
   beforeAll(async () => {
+    queueEnv = await queueFixture();
     const module = await Test.createTestingModule({
       imports: [MockupModule, IdeaModule],
       controllers: [HealthController],
@@ -63,6 +69,12 @@ describe('Image API contracts (no external services)', () => {
       .useValue(ai)
       .overrideProvider(R2Service)
       .useValue(r2)
+      .overrideProvider(TaskQueueService)
+      .useValue(queueEnv.queue)
+      .overrideGuard(AgentGuard)
+      .useValue(queueEnv.guard)
+      .overrideProvider(ConfigService)
+      .useValue(queueEnv.config)
       .compile();
     app = module.createNestApplication({ logger: false });
     app.setGlobalPrefix('api');
@@ -70,9 +82,11 @@ describe('Image API contracts (no external services)', () => {
       new ValidationPipe({ transform: true, whitelist: true }),
     );
     await app.init();
+    await queueEnv.seed(app);
   });
   afterAll(async () => {
-    await app.close();
+    await app?.close();
+    await queueEnv?.close();
   });
   beforeEach(() => jest.clearAllMocks());
   it('reports health without calling AI or storage', async () => {
@@ -143,7 +157,7 @@ describe('Image API contracts (no external services)', () => {
       })
       .expect(500);
     expect(response.body).toMatchObject({
-      code: 'INTERNAL_ERROR',
+      code: 'BACKGROUND_JOB_FAILED',
       requestId: expect.any(String) as unknown,
     });
     expect(JSON.stringify(response.body)).not.toContain('private database');

@@ -19,7 +19,7 @@ export class EditImageBatchDto extends ImageProviderSelectionDto {
   })
   @IsOptional()
   @IsIn(['true', 'false'])
-  async?: string;
+  declare async?: string;
   @ApiProperty({
     description: 'JSON array of 1–20 non-empty prompts',
     example: '["Add a studio background"]',

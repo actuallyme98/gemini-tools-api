@@ -1,3 +1,6 @@
+import { TaskQueueService } from '../src/queue/task-queue.service';
+import { AgentGuard } from '../src/agent/agent-auth.service';
+import { queueFixture } from './queue-fixture';
 import { ValidationPipe, type INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
@@ -50,6 +53,7 @@ class NativeShop extends ShopAIKeyProvider {
 describe('Durable HTTP and AI diagnostics (no external calls)', () => {
   let directory: string;
   let app: INestApplication;
+  let queueEnv: Awaited<ReturnType<typeof queueFixture>>;
   let audit: AuditLogService;
   let send: jest.SpyInstance;
   beforeAll(async () => {
@@ -68,6 +72,7 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
       R2_BUCKET_NAME: 'test',
       R2_PUBLIC_URL: 'https://cdn.example',
     });
+    queueEnv = await queueFixture(config);
     const module = await Test.createTestingModule({
       imports: [AuditModule, BackgroundModule, MockupModule],
       providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
@@ -86,6 +91,10 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
           new NativeShop(config, audit),
         inject: [ConfigService, AuditLogService],
       })
+      .overrideProvider(TaskQueueService)
+      .useValue(queueEnv.queue)
+      .overrideGuard(AgentGuard)
+      .useValue(queueEnv.guard)
       .compile();
     app = module.createNestApplication({ logger: false });
     app.setGlobalPrefix('api');
@@ -93,6 +102,7 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
       new ValidationPipe({ transform: true, whitelist: true }),
     );
     await app.init();
+    await queueEnv.seed(app);
     audit = app.get(AuditLogService);
     send = jest
       .spyOn(S3Client.prototype, 'send')
@@ -117,7 +127,7 @@ describe('Durable HTTP and AI diagnostics (no external calls)', () => {
     );
   });
   afterAll(async () => {
-    if (app) await app.close();
+    if (app) await app?.close();
     jest.restoreAllMocks();
     if (
       directory &&

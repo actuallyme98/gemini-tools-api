@@ -9,6 +9,12 @@ services:
       NODE_ENV: production
       PORT: '5177'
       AUDIT_LOG_DIR: /app/logs
+      QUEUE_ENABLED: 'true'
+      QUEUE_WORKER_ENABLED: 'false'
+      REDIS_URL: redis://queue-redis:6379/0
+    depends_on:
+      queue-redis:
+        condition: service_healthy
     volumes:
       - api-logs:/app/logs
     ports:
@@ -21,6 +27,46 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
+
+  worker:
+    image: ${API_IMAGE:?Deploy the API image first}
+    restart: unless-stopped
+    init: true
+    env_file: ${DEPLOY_PATH:?Set DEPLOY_PATH}/.env
+    environment:
+      NODE_ENV: production
+      PORT: '5177'
+      AUDIT_LOG_DIR: /app/logs
+      QUEUE_ENABLED: 'true'
+      QUEUE_WORKER_ENABLED: 'true'
+      REDIS_URL: redis://queue-redis:6379/0
+    volumes:
+      - worker-logs:/app/logs
+    depends_on:
+      queue-redis:
+        condition: service_healthy
+    mem_limit: 1g
+    cpus: 1.0
+    stop_grace_period: 120s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+  queue-redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes', '--appendfsync', 'everysec', '--maxmemory', '192mb', '--maxmemory-policy', 'noeviction']
+    volumes:
+      - queue-redis-data:/data
+    mem_limit: 256m
+    cpus: 0.5
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
 
   app:
     image: ${APP_IMAGE:-ghcr.io/actuallyme98/gemini-tools-app:latest}
@@ -42,3 +88,5 @@ services:
 
 volumes:
   api-logs:
+  worker-logs:
+  queue-redis-data:

@@ -1,6 +1,7 @@
 import { envValidationSchema } from './env.validation';
 
 const infrastructure = {
+  QUEUE_ENABLED: false,
   R2_ACCOUNT_ID: 'account',
   R2_BUCKET_NAME: 'bucket',
   R2_PUBLIC_URL: 'https://cdn.example',
@@ -10,6 +11,23 @@ const infrastructure = {
 };
 
 describe('AI environment configuration', () => {
+  it('validates the Google client while email-domain policy lives in MongoDB', () => {
+    expect(
+      envValidationSchema.validate(infrastructure).value as unknown,
+    ).toMatchObject({ GOOGLE_CLIENT_ID: '' });
+    expect(
+      envValidationSchema.validate({
+        ...infrastructure,
+        GOOGLE_CLIENT_ID: 'client.apps.googleusercontent.com',
+      }).error,
+    ).toBeUndefined();
+    expect(
+      envValidationSchema.validate({
+        ...infrastructure,
+        GOOGLE_CLIENT_ID: 'invalid',
+      }).error,
+    ).toBeDefined();
+  });
   it('defaults to ShopAIKey without requiring unused provider keys', () => {
     const result = envValidationSchema.validate({
       ...infrastructure,

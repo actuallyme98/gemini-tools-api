@@ -3,8 +3,6 @@ import {
   imageModelSelectionSchema,
 } from '../ai/provider-selection.dto';
 import type { Response } from 'express';
-import { requestSignal } from '../common/request-signal';
-import { randomUUID } from 'node:crypto';
 import { ImageJobsService } from '../common/image-jobs.service';
 import { ApiError } from '../common/api-error';
 import { multerConfig, requireImage } from '../common/multer.config';
@@ -19,25 +17,29 @@ import {
   Header,
   Param,
   ParseUUIDPipe,
+  Req,
+  UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBody, ApiConsumes, ApiAcceptedResponse } from '@nestjs/swagger';
 
-import { MockupService } from './mockup.service';
 import { GeneratePromptsDto } from './dto/create-mockup.dto';
 import { EditImageBatchDto } from './dto/edit-image-batch.dto';
+import { storeImage } from '../common/image-task';
+import { AgentGuard, type AgentRequest } from '../agent/agent-auth.service';
 
 @Controller('mockups')
+@UseGuards(AgentGuard)
 export class MockupController {
-  constructor(
-    private readonly mockupService: MockupService,
-    private readonly jobs: ImageJobsService,
-  ) {}
+  constructor(private readonly jobs: ImageJobsService) {}
 
   @Get('jobs/:jobId')
   @Header('Cache-Control', 'no-store')
-  getJob(@Param('jobId', new ParseUUIDPipe()) jobId: string) {
-    return this.jobs.get(jobId);
+  getJob(
+    @Param('jobId', new ParseUUIDPipe()) jobId: string,
+    @Req() req: AgentRequest,
+  ) {
+    return this.jobs.get(jobId, req.agentUser.id);
   }
 
   @Post('/generate-prompts')
@@ -64,12 +66,18 @@ export class MockupController {
     @UploadedFile() file: Express.Multer.File,
     @Body() body: GeneratePromptsDto,
     @Res({ passthrough: true }) response: Response,
+    @Req() req: AgentRequest,
   ) {
-    return this.mockupService.generateMockupPrompts(
-      requireImage(file),
-      body.count,
-      requestSignal(response),
-      body.provider,
+    return this.jobs.respond(
+      {
+        operation: 'prompts',
+        images: [storeImage(requireImage(file))],
+        count: body.count,
+        provider: body.provider,
+      },
+      req,
+      response,
+      body.async === 'true',
     );
   }
 
@@ -103,6 +111,7 @@ export class MockupController {
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: EditImageBatchDto,
     @Res({ passthrough: true }) response: Response,
+    @Req() req: AgentRequest,
   ) {
     const image = requireImage(file);
     if (dto.async === 'true') {
@@ -112,29 +121,29 @@ export class MockupController {
           'MOCKUP_SINGLE_PROMPT_REQUIRED',
           'Mỗi tác vụ chỉ nhận một prompt. Gửi từng ảnh riêng để giữ kết quả đã hoàn tất.',
         );
-      const requestId = String(
-        response.getHeader('X-Request-Id') || randomUUID(),
+      return this.jobs.respond(
+        {
+          operation: 'mockup',
+          images: [storeImage(image)],
+          prompt: dto.prompts[0],
+          provider: dto.provider,
+          imageModel: dto.imageModel,
+        },
+        req,
+        response,
+        true,
       );
-      const job = this.jobs.create(
-        () =>
-          this.mockupService.generateMockup(
-            image,
-            dto.prompts[0],
-            undefined,
-            dto.provider,
-            dto.imageModel,
-          ),
-        requestId,
-      );
-      response.status(202);
-      return job;
     }
-    return this.mockupService.generateMockups(
-      image,
-      dto.prompts,
-      requestSignal(response),
-      dto.provider,
-      dto.imageModel,
+    return this.jobs.respond(
+      {
+        operation: 'mockup-batch',
+        images: [storeImage(image)],
+        prompts: dto.prompts,
+        provider: dto.provider,
+        imageModel: dto.imageModel,
+      },
+      req,
+      response,
     );
   }
 }

@@ -42,7 +42,7 @@ export class BackgroundService {
           },
           params.provider,
         ),
-      { signal: params.signal },
+      { signal: params.signal, retries: 1 },
     );
     params.signal?.throwIfAborted();
     // Retry upload independently so a storage failure never repeats paid image generation.

@@ -1,3 +1,5 @@
+import { TaskQueueService } from '../src/queue/task-queue.service';
+import { TestTaskQueue } from './queue-fixture';
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import type { INestApplication } from '@nestjs/common';
@@ -14,12 +16,23 @@ import { AgentStore } from '../src/agent/agent.store';
 import { AgentAuthService, AgentGuard } from '../src/agent/agent-auth.service';
 import { AgentAssetsService } from '../src/agent/agent-assets.service';
 import { AgentService } from '../src/agent/agent.service';
+import { WorkflowsController } from '../src/agent/workflows.controller';
+import { WorkflowsService } from '../src/agent/workflows.service';
+import { AgentContext } from '../src/agent/agent-context';
 import { AgentWorker } from '../src/agent/agent.worker';
 import { AIService } from '../src/ai/ai.service';
 import { R2Service } from '../src/r2/r2.service';
 import { AuditLogService } from '../src/audit/audit-log.service';
 import { ApiExceptionFilter } from '../src/common/api-exception.filter';
-import type { Asset, Conversation, Run, Step } from '../src/agent/agent.types';
+import type {
+  Asset,
+  Conversation,
+  Run,
+  Step,
+  CustomWorkflow,
+  WorkflowExecution,
+  ConversationMemory,
+} from '../src/agent/agent.types';
 import { MOCKUP_RULES } from '../src/agent/agent.prompts';
 import { ApiError } from '../src/common/api-error';
 
@@ -35,6 +48,11 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
     validateSelection: jest.fn(),
     validateImageModel: jest.fn(() => Promise.resolve(undefined)),
     agentJSON: jest.fn((prompt: string): Promise<unknown> => {
+      if (prompt.startsWith('Tóm tắt'))
+        return Promise.resolve({
+          summary:
+            'Giữ nguyên chữ POKEMON, màu sản phẩm, ID ảnh nguồn và bối cảnh đích.',
+        });
       if (prompt.startsWith('Chọn công cụ'))
         return Promise.resolve({
           operation: 'design',
@@ -110,14 +128,16 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
       .png()
       .toBuffer();
     const module = await Test.createTestingModule({
-      controllers: [AgentController, AgentAuthController],
+      controllers: [AgentController, AgentAuthController, WorkflowsController],
       providers: [
         AgentStore,
         AgentAuthService,
         AgentGuard,
         AgentAssetsService,
         AgentService,
+        { provide: TaskQueueService, useValue: new TestTaskQueue() },
         AgentWorker,
+        WorkflowsService,
         { provide: ConfigService, useValue: new ConfigService(settings) },
         { provide: AIService, useValue: ai },
         {
@@ -500,9 +520,9 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
     ]);
     expect(responses.map((response) => response.status)).toEqual([202, 202]);
     expect(
-      (
-        await store.get<Conversation>('conversation', conversation.id, owner)
-      ).messages.filter((message) => message.role === 'user'),
+      (await store.messagePage(owner, conversation.id)).items.filter(
+        (message) => message.role === 'user',
+      ),
     ).toHaveLength(1);
     expect(await store.query<Step>('step', { runId: input.id })).toHaveLength(
       1,
@@ -514,6 +534,409 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
       otherToken,
     ).expect(404);
     await post(`/runs/${input.id}/cancel`);
+  });
+  it('keeps all messages beyond 200 and pages without gaps, duplicates or cross-owner access', async () => {
+    const conversation = (
+      await post('/conversations', { title: 'Full history' }).expect(201)
+    ).body as Conversation;
+    await Promise.all(
+      Array.from({ length: 245 }, (_, index) =>
+        store.appendMessage(conversation.id, owner, {
+          id: `m-${String(index).padStart(4, '0')}`,
+          role: index % 2 ? 'assistant' : 'user',
+          text: `Tin nhắn ${index}`,
+          createdAt: '2026-01-01T00:00:00.000Z',
+        }),
+      ),
+    );
+    await store.appendMessage(conversation.id, owner, {
+      id: 'm-0000',
+      role: 'user',
+      text: 'duplicate',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    const all: string[] = [];
+    let before: string | null = null;
+    do {
+      const result = await get(
+        `/conversations/${conversation.id}${before ? `?before=${before}` : ''}`,
+      ).expect(200);
+      const page = result.body as {
+        conversation: Conversation;
+        messagePage: { nextCursor: string | null };
+      };
+      all.unshift(...page.conversation.messages.map((message) => message.id));
+      before = page.messagePage.nextCursor;
+    } while (before);
+    expect(all).toHaveLength(245);
+    expect(new Set(all).size).toBe(245);
+    expect(all[0]).toBe('m-0000');
+    expect(all.at(-1)).toBe('m-0244');
+    await get(`/conversations/${conversation.id}?before=invalid`).expect(400);
+    await get(`/conversations/${conversation.id}`, otherToken).expect(404);
+    expect(
+      (await store.get<Conversation>('conversation', conversation.id, owner))
+        .messages,
+    ).toEqual([]);
+    const another = new AgentStore(app.get(ConfigService));
+    try {
+      await another.onModuleInit();
+      expect(
+        (await another.messagePage(owner, conversation.id, undefined, 300))
+          .items,
+      ).toHaveLength(245);
+    } finally {
+      await another.onApplicationShutdown();
+    }
+  });
+  it('migrates legacy embedded history idempotently before removing the embedded copy', async () => {
+    const conversation = (
+      await post('/conversations', { title: 'Legacy history' })
+    ).body as Conversation;
+    const messages: Conversation['messages'] = [
+      {
+        id: randomUUID(),
+        role: 'user',
+        text: 'Lịch sử cũ còn nguyên',
+        createdAt: '2025-01-01T00:00:00.000Z',
+      },
+    ];
+    await store.patch<Conversation>('conversation', conversation.id, owner, {
+      messages,
+    });
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const another = new AgentStore(app.get(ConfigService));
+      try {
+        await another.onModuleInit();
+      } finally {
+        await another.onApplicationShutdown();
+      }
+    }
+    expect((await store.messagePage(owner, conversation.id)).items).toEqual(
+      messages,
+    );
+    expect(
+      (await store.get<Conversation>('conversation', conversation.id, owner))
+        .messages,
+    ).toEqual([]);
+  });
+  it('compacts old history, preserves pinned requirements and never consumes future context', async () => {
+    const { conversation, run } = await newRun({
+      operation: 'design',
+      sourceIds: [],
+      targetIds: [],
+      count: 1,
+    });
+    await store.patch<Conversation>('conversation', conversation.id, owner, {
+      pinnedRequirements: ['Giữ nguyên chữ POKEMON'],
+    });
+    for (let index = 0; index < 45; index++)
+      await store.appendMessage(conversation.id, owner, {
+        id: `old-${String(index).padStart(3, '0')}`,
+        role: index % 2 ? 'assistant' : 'user',
+        text: `Yêu cầu ${index}: giữ chữ POKEMON`,
+        createdAt: '2025-01-01T00:00:00.000Z',
+      });
+    const context = new AgentContext(store, ai as unknown as AIService);
+    const result = await context.prepare(run);
+    expect(result.pinnedRequirements).toEqual(['Giữ nguyên chữ POKEMON']);
+    expect(result.summary).toContain('POKEMON');
+    expect(result.metadata.summarizedMessages).toBeGreaterThan(30);
+    expect(result.history.length).toBeLessThanOrEqual(6);
+    const memory = await store.find<ConversationMemory>(
+      'conversation-memory',
+      conversation.id,
+    );
+    expect(memory.messageCount).toBe(result.metadata.summarizedMessages);
+    expect(
+      (await store.messagePage(owner, conversation.id, undefined, 100)).items,
+    ).toHaveLength(47);
+    await store.patch<Run>('run', run.id, owner, { state: 'planning' });
+    await app.get(AgentService).plan({ ...run, state: 'planning' });
+    const planned = await store.find<Run>('run', run.id);
+    expect(planned.items[0].prompt).toContain('YÊU CẦU GHIM CỦA HỘI THOẠI');
+    expect(planned.items[0].prompt).toContain('Giữ nguyên chữ POKEMON');
+    const data = JSON.parse(
+      ai.agentJSON.mock.calls.at(-1)[0].split('DỮ LIỆU:\n')[1],
+    ) as { pinnedRequirements: string[]; summary: string };
+    expect(data.pinnedRequirements).toEqual(['Giữ nguyên chữ POKEMON']);
+    expect(data.summary).toContain('POKEMON');
+    await store.patch<ConversationMemory>(
+      'conversation-memory',
+      conversation.id,
+      owner,
+      { summary: 'FUTURE SECRET', through: '2099-01-01T00:00:00.000Z|future' },
+    );
+    const earlier = await context.prepare(run);
+    expect(JSON.stringify(earlier)).not.toContain('FUTURE SECRET');
+    expect(() => context.serialize({ research: 'x'.repeat(80000) })).toThrow(
+      'Ngữ cảnh vượt',
+    );
+  });
+  it('retains raw history and reports a compaction failure instead of silently dropping context', async () => {
+    const { conversation, run } = await newRun({
+      operation: 'design',
+      sourceIds: [],
+      targetIds: [],
+      count: 1,
+    });
+    for (let index = 0; index < 20; index++)
+      await store.appendMessage(conversation.id, owner, {
+        id: `old-${index}`,
+        role: 'user',
+        text: 'Không được thay màu sản phẩm',
+        createdAt: '2025-01-01T00:00:00.000Z',
+      });
+    ai.agentJSON.mockRejectedValueOnce(new Error('Provider unavailable'));
+    await expect(
+      new AgentContext(store, ai as unknown as AIService).prepare(run),
+    ).rejects.toThrow('Chưa tóm tắt được hội thoại');
+    expect(
+      (await store.messagePage(owner, conversation.id, undefined, 100)).items,
+    ).toHaveLength(22);
+  });
+  it('paginates conversation history with owner-scoped stable cursors', async () => {
+    await Promise.all(
+      Array.from({ length: 35 }, (_, index) =>
+        app.get(AgentService).createConversation(owner, `History ${index}`),
+      ),
+    );
+    const first = (await get('/history').expect(200)).body as {
+      items: Conversation[];
+      nextCursor: string;
+    };
+    expect(first.items).toHaveLength(30);
+    const second = (
+      await get(`/history?before=${first.nextCursor}`).expect(200)
+    ).body as { items: Conversation[] };
+    expect(second.items.length).toBeGreaterThan(0);
+    expect(
+      second.items.some((item) =>
+        first.items.some((previous) => item.id === previous.id),
+      ),
+    ).toBe(false);
+    const foreign = (
+      await get(`/history?before=${first.nextCursor}`, otherToken).expect(200)
+    ).body as { items: Conversation[] };
+    expect(foreign.items.every((item) => item.owner !== owner)).toBe(true);
+    await get('/history?before=invalid').expect(400);
+  });
+  it('runs a versioned employee workflow through approved previous outputs and prevents skipped stages', async () => {
+    const input = {
+      name: 'Design rồi mockup',
+      description: 'Quy trình nhân viên',
+      archived: false,
+      steps: [
+        {
+          name: 'Hai thiết kế',
+          operation: 'design',
+          instructions: 'Tạo ý tưởng camping khác nhau.',
+          source: 'initial',
+          count: 2,
+        },
+        {
+          name: 'Mockup',
+          operation: 'mockup_ai',
+          instructions: 'Chuyển thiết kế vào ảnh tham chiếu và giữ cảnh đích.',
+          source: 'previous',
+          count: 1,
+        },
+      ],
+    };
+    const workflow = (await post('/workflows', input).expect(201))
+      .body as CustomWorkflow;
+    expect(
+      ((await get('/workflows', otherToken)).body as CustomWorkflow[]).some(
+        (item) => item.id === workflow.id,
+      ),
+    ).toBe(false);
+    const conversation = (
+      await post('/conversations', { title: 'Workflow execution' })
+    ).body as Conversation;
+    const launch = {
+      id: randomUUID(),
+      conversationId: conversation.id,
+      brief: 'Tạo bộ ảnh camping',
+      sourceIds: [],
+      targetIds: [target.id],
+      templateIds: [],
+      productType: 'T-shirt',
+      provider: 'shopaikey',
+    };
+    await post(`/workflows/${workflow.id}/launch`, launch, otherToken).expect(
+      404,
+    );
+    const invalidLaunchId = randomUUID();
+    ai.validateImageModel.mockRejectedValueOnce(
+      new ApiError(400, 'AI_MODEL_INVALID', 'Model không dùng được.'),
+    );
+    await post(`/workflows/${workflow.id}/launch`, {
+      ...launch,
+      id: invalidLaunchId,
+    }).expect(400);
+    expect(
+      await store.find<WorkflowExecution>(
+        'workflow-execution',
+        invalidLaunchId,
+      ),
+    ).toBeUndefined();
+    const launched = (
+      await post(`/workflows/${workflow.id}/launch`, launch).expect(201)
+    ).body as { execution: WorkflowExecution; run: Run };
+    const duplicate = (
+      await post(`/workflows/${workflow.id}/launch`, launch).expect(201)
+    ).body as { run: Run };
+    expect(duplicate.run.id).toBe(launched.run.id);
+    await post(`/workflow-executions/${launched.execution.id}/stages/1`).expect(
+      409,
+    );
+    await post(`/workflow-executions/${launched.execution.id}/stages/2`).expect(
+      409,
+    );
+    const edited = await request(http())
+      .patch(`/api/agent/workflows/${workflow.id}`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...input, name: 'Workflow sửa', updatedAt: workflow.updatedAt })
+      .expect(200);
+    expect((edited.body as CustomWorkflow).revision).toBe(2);
+    expect(
+      (
+        await store.find<WorkflowExecution>(
+          'workflow-execution',
+          launched.execution.id,
+        )
+      ).workflow.revision,
+    ).toBe(1);
+    await worker.tick();
+    await wait(
+      async () =>
+        (await store.find<Run>('run', launched.run.id))?.state === 'draft',
+    );
+    const draft = await store.find<Run>('run', launched.run.id);
+    await post(`/runs/${draft.id}/start`, {
+      updatedAt: draft.updatedAt,
+    }).expect(202);
+    await worker.tick();
+    await wait(
+      async () => (await store.find<Run>('run', draft.id))?.state === 'review',
+    );
+    const steps = await store.query<Step>(
+      'step',
+      { runId: draft.id, type: 'image' },
+      25,
+    );
+    for (const step of steps)
+      await request(http())
+        .patch(`/api/agent/assets/${step.resultId}/review`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ review: 'approved' })
+        .expect(200);
+    const next = (
+      await post(
+        `/workflow-executions/${launched.execution.id}/stages/1`,
+      ).expect(201)
+    ).body as { execution: WorkflowExecution; run: Run };
+    expect(next.run.sourceIds.sort()).toEqual(
+      steps.map((step) => step.resultId).sort(),
+    );
+    expect(next.run.count).toBe(2);
+    expect(next.run.workflow.revision).toBe(1);
+    expect(next.execution.stage).toBe(1);
+    const repeated = (
+      await post(
+        `/workflow-executions/${launched.execution.id}/stages/1`,
+      ).expect(201)
+    ).body as { run: Run };
+    expect(repeated.run.id).toBe(next.run.id);
+    await worker.tick();
+    await wait(
+      async () =>
+        (await store.find<Run>('run', next.run.id))?.state === 'draft',
+    );
+    const nextDraft = await store.find<Run>('run', next.run.id);
+    await post(`/runs/${next.run.id}/start`, {
+      updatedAt: nextDraft.updatedAt,
+    }).expect(202);
+    await worker.tick();
+    await wait(
+      async () =>
+        (await store.find<Run>('run', next.run.id))?.state === 'review',
+    );
+    const nextSteps = await store.query<Step>(
+      'step',
+      { runId: next.run.id, type: 'image' },
+      25,
+    );
+    const retry = (
+      await post(`/runs/${next.run.id}/retry`, {
+        id: randomUUID(),
+        stepIds: [nextSteps[0].id],
+      }).expect(201)
+    ).body as Run;
+    expect(retry.sourceIds).toHaveLength(1);
+    expect(
+      (
+        await store.find<WorkflowExecution>(
+          'workflow-execution',
+          launched.execution.id,
+        )
+      ).runIds[1],
+    ).toBe(retry.id);
+    const executionBeforeRepair = await store.find<WorkflowExecution>(
+      'workflow-execution',
+      launched.execution.id,
+    );
+    const interruptedRunIds = [...executionBeforeRepair.runIds];
+    interruptedRunIds[1] = next.run.id;
+    await store.patch<WorkflowExecution>(
+      'workflow-execution',
+      launched.execution.id,
+      owner,
+      { runIds: interruptedRunIds },
+    );
+    await post(`/runs/${next.run.id}/retry`, {
+      id: retry.id,
+      stepIds: [nextSteps[0].id],
+    }).expect(201);
+    expect(
+      (
+        await store.find<WorkflowExecution>(
+          'workflow-execution',
+          launched.execution.id,
+        )
+      ).runIds[1],
+    ).toBe(retry.id);
+    await store.patch<Run>('run', retry.id, owner, { state: 'failed' });
+    const replanId = randomUUID();
+    const replanned = (
+      await post(`/workflow-executions/${launched.execution.id}/replan`, {
+        id: replanId,
+        answer: 'Giữ nguyên chữ và màu sắc trên thiết kế',
+      }).expect(201)
+    ).body as { run: Run };
+    expect(replanned.run.brief).toContain('Giữ nguyên chữ');
+    expect(replanned.run.sourceIds).toEqual(retry.sourceIds);
+    const repeatedPlan = (
+      await post(`/workflow-executions/${launched.execution.id}/replan`, {
+        id: replanId,
+        answer: 'Giữ nguyên chữ và màu sắc trên thiết kế',
+      }).expect(201)
+    ).body as { run: Run };
+    expect(repeatedPlan.run.id).toBe(replanId);
+    await post(
+      `/workflow-executions/${launched.execution.id}/replan`,
+      { id: randomUUID(), answer: 'Thử chéo tài khoản' },
+      otherToken,
+    ).expect(404);
+    await post(`/runs/${replanId}/cancel`);
+    await post('/workflows', {
+      ...input,
+      steps: [{ ...input.steps[0], source: 'previous' }],
+    }).expect(400);
+    await post('/workflows', {
+      ...input,
+      steps: [{ ...input.steps[0], operation: 'shell' }],
+    }).expect(400);
   });
   it('claims jobs atomically across multiple workers and leaves uncertain calls interrupted', async () => {
     const runId = randomUUID();

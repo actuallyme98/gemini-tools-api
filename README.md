@@ -1,5 +1,7 @@
 ## AI providers
 
+Hàng đợi Redis/BullMQ cho nhiều nhân viên/tab, worker riêng và hướng dẫn vận hành: [Queue](docs/queue.md). Tất cả công cụ AI yêu cầu đăng nhập; UI kiểm tra phiên trước khi mở workspace.
+
 CI/CD, GHCR và deploy chung server EziHubb: [hướng dẫn deployment](docs/deployment.md).
 
 Phản hồi lỗi thống nhất cho frontend, mã lỗi và cách tra cứu log: [API error contract](docs/api-errors.md).
@@ -112,3 +114,9 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
 
 Hướng dẫn frontend, giới hạn đầu vào và Docker: [docs/frontend-api.md](docs/frontend-api.md).
+
+Đăng nhập Google và giới hạn domain email cho Agent: [docs/google-auth.md](docs/google-auth.md).
+
+Workflow nhân viên, compact context và lưu đầy đủ hội thoại: [docs/workflows-context-history.md](docs/workflows-context-history.md).
+
+Quản trị tài khoản, công việc, audit logs và vận hành công ty: [docs/administration.md](docs/administration.md).

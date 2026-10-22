@@ -22,7 +22,7 @@ async function bootstrap() {
       .getOrThrow<string>('CORS_ALLOWED_ORIGINS')
       .split(',')
       .map((origin) => origin.trim()),
-    exposedHeaders: ['X-Request-Id'],
+    exposedHeaders: ['X-Request-Id', 'X-Job-Id'],
   });
 
   const config = new DocumentBuilder()

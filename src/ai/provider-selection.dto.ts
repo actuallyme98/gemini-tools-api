@@ -1,5 +1,11 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  IsIn,
+} from 'class-validator';
 
 export const providerSelectionSchema = {
   type: 'string' as const,
@@ -19,6 +25,10 @@ export const imageModelSelectionSchema = {
 };
 
 export class ProviderSelectionDto {
+  @ApiPropertyOptional({ enum: ['true', 'false'] })
+  @IsOptional()
+  @IsIn(['true', 'false'])
+  async?: string;
   @ApiPropertyOptional(providerSelectionSchema)
   @IsOptional()
   @IsString()

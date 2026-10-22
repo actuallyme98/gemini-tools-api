@@ -5,18 +5,38 @@ export const envValidationSchema = Joi.object({
     .valid('development', 'production', 'test')
     .default('development'),
   AGENT_ENABLED: Joi.boolean().default(false),
+  QUEUE_ENABLED: Joi.boolean().default(true),
+  QUEUE_WORKER_ENABLED: Joi.boolean().default(true),
+  QUEUE_PREFIX: Joi.string()
+    .pattern(/^[a-zA-Z0-9_-]{1,64}$/)
+    .default('lcgmedia-tools'),
+  QUEUE_CONCURRENCY: Joi.number().integer().min(1).max(12).default(3),
+  QUEUE_USER_CONCURRENCY: Joi.number().integer().min(1).max(6).default(2),
+  QUEUE_MAX_PENDING: Joi.number().integer().min(20).max(10000).default(1000),
+  QUEUE_MAX_PENDING_PER_USER: Joi.number()
+    .integer()
+    .min(1)
+    .max(500)
+    .default(100),
   MONGODB_URI: Joi.string()
     .pattern(/^mongodb(?:\+srv)?:\/\//)
-    .when('AGENT_ENABLED', { is: true, then: Joi.required() }),
+    .when('AGENT_ENABLED', { is: true, then: Joi.required() })
+    .when('QUEUE_ENABLED', { is: true, then: Joi.required() }),
   MONGODB_DATABASE: Joi.string()
     .pattern(/^[a-zA-Z0-9_-]{1,64}$/)
     .default('lcgmedia'),
   AGENT_ASSET_ENCRYPTION_KEY: Joi.string()
     .pattern(/^[a-fA-F0-9]{64}$/)
-    .when('AGENT_ENABLED', { is: true, then: Joi.required() }),
+    .when('AGENT_ENABLED', { is: true, then: Joi.required() })
+    .when('QUEUE_ENABLED', { is: true, then: Joi.required() }),
   AGENT_WORKER_ENABLED: Joi.boolean().default(true),
   AGENT_CONCURRENCY: Joi.number().integer().min(1).max(6).default(3),
   AGENT_SESSION_HOURS: Joi.number().integer().min(1).max(168).default(24),
+  GOOGLE_CLIENT_ID: Joi.string()
+    .trim()
+    .pattern(/^[a-zA-Z0-9_-]+\.apps\.googleusercontent\.com$/)
+    .allow('')
+    .default(''),
 
   // Provider IDs are resolved against the registry by AIService at startup.
   AI_PROVIDER: Joi.string().default('shopaikey'),

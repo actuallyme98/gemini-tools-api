@@ -19,6 +19,7 @@ import {
 import { AgentAuthController } from '../src/agent/agent.controller';
 import { AdminController } from '../src/agent/admin.controller';
 import { AdminService } from '../src/agent/admin.service';
+import { BudgetService } from '../src/agent/budget.service';
 import { ProviderUsageService } from '../src/agent/provider-usage.service';
 import { AgentService } from '../src/agent/agent.service';
 import { AgentAssetsService } from '../src/agent/agent-assets.service';
@@ -105,6 +106,7 @@ describe('Company administration (real MongoDB)', () => {
         AgentGuard,
         AgentAdminGuard,
         AdminService,
+        BudgetService,
         ProviderUsageService,
         AgentService,
         { provide: TaskQueueService, useValue: new TestTaskQueue() },

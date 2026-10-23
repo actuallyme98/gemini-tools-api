@@ -67,6 +67,8 @@ export class ImageJobsWorker implements OnModuleInit {
           requestId: current.requestId,
           method: 'WORKER',
           path: `/api/image-jobs/${id}`,
+          owner,
+          billingScope: id,
         },
         async () => {
           try {

@@ -18,6 +18,8 @@ import { parseAIJSON } from '../json.util';
 import { ApiError } from '../../common/api-error';
 import { sanitizeErrorMessage } from '../../common/error-sanitizer';
 import { AuditLogService, type AuditPart } from '../../audit/audit-log.service';
+import { BudgetService } from '../../agent/budget.service';
+import { responseUsage } from '../../agent/budget.util';
 
 interface GoogleGenAIProviderConfig {
   id: string;
@@ -40,6 +42,7 @@ export abstract class GoogleGenAIProvider implements AIProvider {
     protected readonly config: ConfigService,
     private readonly providerConfig: GoogleGenAIProviderConfig,
     private readonly audit?: AuditLogService,
+    private readonly budget?: BudgetService,
   ) {
     this.id = providerConfig.id;
   }
@@ -93,13 +96,33 @@ export abstract class GoogleGenAIProvider implements AIProvider {
       'generateContent:image',
       contents,
     );
-    let response = await this.imageGenai.models.generateContent({
-      model: imageModel ?? this.modelImage,
-      contents,
-      ...(this.providerConfig.imageResponseModalities
-        ? { config: { responseModalities: ['TEXT', 'IMAGE'] } }
-        : {}),
-    });
+    const generate = () =>
+      this.imageGenai.models.generateContent({
+        model: imageModel ?? this.modelImage,
+        contents,
+        ...(this.providerConfig.imageResponseModalities
+          ? { config: { responseModalities: ['TEXT', 'IMAGE'] } }
+          : {}),
+      });
+    let response = this.budget
+      ? await this.budget.call(
+          {
+            provider: this.id,
+            model: imageModel ?? this.modelImage,
+            operation: 'image',
+          },
+          generate,
+          (result) =>
+            responseUsage(
+              result,
+              'genai',
+              result.candidates
+                ?.flatMap((candidate) => candidate.content?.parts ?? [])
+                .filter((part) => !part.thought && !!part.inlineData?.data)
+                .length || undefined,
+            ),
+        )
+      : await generate();
     await this.audit?.write('ai_response', {
       provider: this.id,
       model: imageModel ?? this.modelImage,
@@ -260,10 +283,22 @@ export abstract class GoogleGenAIProvider implements AIProvider {
       'generateContent:json',
       [{ role: 'user', parts }],
     );
-    const response = await this.genai.models.generateContent({
-      model: image ? this.modelMultimodal : this.modelText,
-      contents: [{ role: 'user', parts }],
-    });
+    const generate = () =>
+      this.genai.models.generateContent({
+        model: image ? this.modelMultimodal : this.modelText,
+        contents: [{ role: 'user', parts }],
+      });
+    const response = this.budget
+      ? await this.budget.call(
+          {
+            provider: this.id,
+            model: image ? this.modelMultimodal : this.modelText,
+            operation: image ? 'vision' : 'text',
+          },
+          generate,
+          (result) => responseUsage(result, 'genai'),
+        )
+      : await generate();
     this.assertResponse(response);
     const text = response.candidates?.[0]?.content?.parts
       ?.map((part) => part.text ?? '')

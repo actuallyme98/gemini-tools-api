@@ -3,11 +3,16 @@ import { AuditLogService } from '../audit/audit-log.service';
 import { ConfigService } from '@nestjs/config';
 import type { GoogleGenAIOptions } from '@google/genai' with { 'resolution-mode': 'import' };
 import { GoogleGenAIProvider } from '../ai/providers/google-genai.provider';
+import { BudgetService } from '../agent/budget.service';
 
 @Injectable()
 export class GeminiService extends GoogleGenAIProvider {
   readonly name = 'Gemini';
-  constructor(config: ConfigService, @Optional() audit?: AuditLogService) {
+  constructor(
+    config: ConfigService,
+    @Optional() audit?: AuditLogService,
+    @Optional() budget?: BudgetService,
+  ) {
     super(
       config,
       {
@@ -26,6 +31,7 @@ export class GeminiService extends GoogleGenAIProvider {
         },
       },
       audit,
+      budget,
     );
   }
 

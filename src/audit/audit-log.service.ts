@@ -11,7 +11,14 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { sanitizeErrorMessage } from '../common/error-sanitizer';
 
-export type AuditContext = { requestId: string; method: string; path: string };
+export type AuditContext = {
+  requestId: string;
+  method: string;
+  path: string;
+  owner?: string;
+  billingScope?: string;
+  billingCalls?: Record<string, number>;
+};
 export type AuditPart = { text: string } | { buffer: Buffer; mimeType: string };
 const hash = (value: string | Buffer) =>
   createHash('sha256').update(value).digest('hex');
@@ -41,6 +48,9 @@ export class AuditLogService implements OnModuleInit, OnApplicationShutdown {
 
   run<T>(context: AuditContext, callback: () => T): T {
     return this.context.run(context, callback);
+  }
+  currentContext() {
+    return this.context.getStore();
   }
 
   private schedule<T>(operation: () => Promise<T>): Promise<T | undefined> {

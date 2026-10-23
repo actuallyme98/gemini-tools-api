@@ -5,6 +5,8 @@ import { imageMimeType } from '../../utils/image.util';
 import { AuditLogService } from '../../audit/audit-log.service';
 import { withRetry } from '../../utils/function.util';
 import { sanitizeErrorMessage } from '../../common/error-sanitizer';
+import { BudgetService } from '../../agent/budget.service';
+import { responseUsage } from '../../agent/budget.util';
 
 export function imageModelFamily(
   id: string,
@@ -25,6 +27,7 @@ export class ShopAIKeyImagesClient {
   constructor(
     private readonly config: ConfigService,
     private readonly audit?: AuditLogService,
+    private readonly budget?: BudgetService,
   ) {}
 
   async download(rawUrl: string): Promise<GeneratedImage> {
@@ -235,38 +238,49 @@ export class ShopAIKeyImagesClient {
         })),
       ],
     );
-    const response = await fetch(
-      `${base}/v1/images/${images.length ? 'edits' : 'generations'}`,
-      {
-        method: 'POST',
-        headers,
-        body,
-        signal: AbortSignal.timeout(
-          this.config.get<number>('SHOPAIKEY_IMAGE_TIMEOUT_MS', 180000),
-        ),
-      },
-    );
-    let result: {
-      data?: { b64_json?: unknown; url?: unknown }[];
-      error?: { message?: unknown };
+    const generate = async () => {
+      const response = await fetch(
+        `${base}/v1/images/${images.length ? 'edits' : 'generations'}`,
+        {
+          method: 'POST',
+          headers,
+          body,
+          signal: AbortSignal.timeout(
+            this.config.get<number>('SHOPAIKEY_IMAGE_TIMEOUT_MS', 180000),
+          ),
+        },
+      );
+      let result: {
+        data?: { b64_json?: unknown; url?: unknown }[];
+        error?: { message?: unknown };
+      };
+      try {
+        result = (await response.json()) as typeof result;
+      } catch {
+        throw Object.assign(
+          new Error('AI provider returned an invalid image response'),
+          { status: response.status >= 400 ? response.status : undefined },
+        );
+      }
+      if (!response.ok || result?.error)
+        throw Object.assign(
+          new Error(
+            typeof result?.error?.message === 'string'
+              ? result.error.message
+              : 'AI image request failed',
+          ),
+          { status: response.ok ? 502 : response.status },
+        );
+      return result;
     };
-    try {
-      result = (await response.json()) as typeof result;
-    } catch {
-      throw Object.assign(
-        new Error('AI provider returned an invalid image response'),
-        { status: response.status >= 400 ? response.status : undefined },
-      );
-    }
-    if (!response.ok || result?.error)
-      throw Object.assign(
-        new Error(
-          typeof result?.error?.message === 'string'
-            ? result.error.message
-            : 'AI image request failed',
-        ),
-        { status: response.ok ? 502 : response.status },
-      );
+    const result = this.budget
+      ? await this.budget.call(
+          { provider: 'shopaikey', model, operation: 'image' },
+          generate,
+          (response) =>
+            responseUsage(response, 'openai', response.data?.length),
+        )
+      : await generate();
     const encoded = result?.data?.[0]?.b64_json;
     if (!encoded && typeof result?.data?.[0]?.url === 'string')
       return this.download(result.data[0].url);

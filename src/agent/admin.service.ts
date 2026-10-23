@@ -9,6 +9,7 @@ import { AuditLogService } from '../audit/audit-log.service';
 import { AIService } from '../ai/ai.service';
 import { ApiError } from '../common/api-error';
 import { TaskQueueService } from '../queue/task-queue.service';
+import { BudgetService } from './budget.service';
 import { sanitizeErrorMessage } from '../common/error-sanitizer';
 import { adminAction } from './admin-audit';
 import {
@@ -62,6 +63,7 @@ export class AdminService {
     private readonly ai: AIService,
     private readonly config: ConfigService,
     private readonly queue: TaskQueueService,
+    private readonly budget: BudgetService,
   ) {}
   private async company(actor: AgentUser) {
     if (
@@ -110,11 +112,15 @@ export class AdminService {
     const usage = await this.store.adminUsage(
       result.items.map((user) => user.id),
     );
+    const budgets = await this.budget.summaries(
+      result.items.map((user) => user.id),
+    );
     return {
       ...result,
       protectedAdminId: settings.protectedAdminId,
       items: result.items.map((user) => ({
         ...userView(user),
+        budget: budgets[user.id],
         usage: Object.fromEntries(
           usage
             .filter((row) => row.owner === user.id)

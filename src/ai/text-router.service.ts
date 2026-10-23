@@ -3,6 +3,7 @@ import type { AICapability, AIProvider } from './ai-provider';
 import { VyceAIProvider } from './providers/vyceai.provider';
 import { ShopAIKeyProvider } from './providers/shopaikey.provider';
 import { externalServiceError } from '../common/external-service-error';
+import { isBudgetError } from '../agent/budget.util';
 
 @Injectable()
 export class TextRouterService implements AIProvider {
@@ -26,7 +27,8 @@ export class TextRouterService implements AIProvider {
   async generateJSON(prompt: string): Promise<unknown> {
     try {
       return await this.vyceai.generateJSON(prompt);
-    } catch {
+    } catch (error) {
+      if (isBudgetError(error)) throw error;
       this.logger.warn(
         'Preferred VyceAI text models unavailable; using ShopAIKey.',
       );

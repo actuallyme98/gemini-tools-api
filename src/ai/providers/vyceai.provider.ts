@@ -1,4 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
+import { BudgetService } from '../../agent/budget.service';
+import { isBudgetError, responseUsage } from '../../agent/budget.util';
 import { ConfigService } from '@nestjs/config';
 import OpenAI from 'openai';
 import type { AIProvider, AICapability } from '../ai-provider';
@@ -15,7 +17,10 @@ export class VyceAIProvider implements AIProvider {
   private modelCache?: { expires: number; models: string[] };
   private modelRequest?: Promise<string[]>;
 
-  constructor(private readonly config: ConfigService) {}
+  constructor(
+    private readonly config: ConfigService,
+    @Optional() private readonly budget?: BudgetService,
+  ) {}
 
   validateConfiguration(capability: AICapability): void {
     if (capability !== 'text')
@@ -78,37 +83,56 @@ export class VyceAIProvider implements AIProvider {
 
   async isHealthy(model: string): Promise<boolean> {
     try {
-      const response = await this.getClient().chat.completions.create(
-        {
-          model,
-          messages: [{ role: 'user', content: 'Reply with only OK.' }],
-          max_tokens: 32,
-        },
-        { timeout: this.config.get<number>('VYCEAI_HEALTH_TIMEOUT_MS', 10000) },
-      );
+      const generate = () =>
+        this.getClient().chat.completions.create(
+          {
+            model,
+            messages: [{ role: 'user', content: 'Reply with only OK.' }],
+            max_tokens: 32,
+          },
+          {
+            timeout: this.config.get<number>('VYCEAI_HEALTH_TIMEOUT_MS', 10000),
+          },
+        );
+      const response = this.budget
+        ? await this.budget.call(
+            { provider: this.id, model, operation: 'health' },
+            generate,
+            (response) => responseUsage(response, 'openai'),
+          )
+        : await generate();
       const choice = response.choices[0];
       const healthy =
         choice?.finish_reason === 'stop' && !!choice.message.content?.trim();
       if (!healthy) this.logger.warn(`Text health check failed: ${model}`);
       return healthy;
-    } catch {
+    } catch (error) {
+      if (isBudgetError(error)) throw error;
       this.logger.warn(`Text health check failed: ${model}`);
       return false;
     }
   }
 
   async generateWithModel(prompt: string, model: string): Promise<unknown> {
-    const response = await this.getClient().chat.completions.create({
-      model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Return only valid JSON matching the requested format. No markdown or explanations.',
-        },
-        { role: 'user', content: prompt },
-      ],
-    });
+    const generate = () =>
+      this.getClient().chat.completions.create({
+        model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              'Return only valid JSON matching the requested format. No markdown or explanations.',
+          },
+          { role: 'user', content: prompt },
+        ],
+      });
+    const response = this.budget
+      ? await this.budget.call(
+          { provider: this.id, model, operation: 'text' },
+          generate,
+          (response) => responseUsage(response, 'openai'),
+        )
+      : await generate();
     const choice = response.choices[0];
     if (choice?.finish_reason !== 'stop')
       throw new Error('AI provider returned incomplete text output');

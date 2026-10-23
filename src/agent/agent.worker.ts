@@ -135,6 +135,8 @@ export class AgentWorker
           requestId: step.requestId,
           method: 'WORKER',
           path: `/api/agent/runs/${step.runId}`,
+          owner: step.owner,
+          billingScope: step.id,
         },
         async () => {
           const run = await this.store.get<Run>('run', step.runId, step.owner);

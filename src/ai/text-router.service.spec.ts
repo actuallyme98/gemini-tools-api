@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { TextRouterService } from './text-router.service';
 import { VyceAIProvider } from './providers/vyceai.provider';
 import { ShopAIKeyProvider } from './providers/shopaikey.provider';
+import { ApiError } from '../common/api-error';
 
 describe('Text provider failover', () => {
   afterEach(() => jest.restoreAllMocks());
@@ -50,5 +51,16 @@ describe('Text provider failover', () => {
       response: { code: 'AI_AUTHENTICATION_FAILED', provider: 'shopaikey' },
     });
     expect(shopaikey.generateJSON).toHaveBeenCalledTimes(1);
+  });
+  it.each([
+    'USER_BUDGET_EXCEEDED',
+    'BUDGET_PRICING_UNAVAILABLE',
+    'BUDGET_REQUEST_UNRESOLVED',
+  ])('does not bypass %s by switching providers', async (code) => {
+    const { router, vyceai, shopaikey } = setup();
+    const error = new ApiError(503, code, 'Request blocked');
+    vyceai.generateJSON.mockRejectedValue(error);
+    await expect(router.generateJSON('prompt')).rejects.toBe(error);
+    expect(shopaikey.generateJSON).not.toHaveBeenCalled();
   });
 });

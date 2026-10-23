@@ -6,6 +6,7 @@ import type {
   GenerateContentResponse,
 } from '@google/genai' with { 'resolution-mode': 'import' };
 import { GoogleGenAIProvider } from './google-genai.provider';
+import { BudgetService } from '../../agent/budget.service';
 import type { AIImageModelCatalog } from '../ai-provider';
 import {
   imageModelFamily,
@@ -170,7 +171,11 @@ export class ShopAIKeyProvider extends GoogleGenAIProvider {
       models: [...models.values()].sort((a, b) => a.id.localeCompare(b.id)),
     };
   }
-  constructor(config: ConfigService, @Optional() audit?: AuditLogService) {
+  constructor(
+    config: ConfigService,
+    @Optional() audit?: AuditLogService,
+    @Optional() budget?: BudgetService,
+  ) {
     super(
       config,
       {
@@ -188,8 +193,9 @@ export class ShopAIKeyProvider extends GoogleGenAIProvider {
         imageResponseModalities: true,
       },
       audit,
+      budget,
     );
-    this.imageAPI = new ShopAIKeyImagesClient(config, audit);
+    this.imageAPI = new ShopAIKeyImagesClient(config, audit, budget);
   }
 
   protected override clientOptions(

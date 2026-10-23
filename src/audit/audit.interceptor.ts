@@ -24,7 +24,10 @@ export class AuditInterceptor implements NestInterceptor {
       method: request.method,
       path: request.path,
       ...((request as AgentRequest).agentUser
-        ? { actorEmail: (request as AgentRequest).agentUser.email }
+        ? {
+            actorEmail: (request as AgentRequest).agentUser.email,
+            owner: (request as AgentRequest).agentUser.id,
+          }
         : {}),
     };
     response.setHeader('X-Request-Id', trace.requestId);

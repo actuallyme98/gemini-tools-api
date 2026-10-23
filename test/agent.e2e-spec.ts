@@ -55,9 +55,22 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
         });
       if (prompt.startsWith('Chọn công cụ'))
         return Promise.resolve({
-          operation: 'design',
+          operation: prompt.includes('test-auto-choice')
+            ? 'mockup_ai'
+            : 'design',
           summary: 'Tạo ý tưởng thiết kế',
-          questions: [],
+          questions:
+            prompt.includes('test-auto-choice') && !prompt.includes('"answer"')
+              ? [
+                  {
+                    question: 'Chọn cách xử lý sản phẩm?',
+                    options: [
+                      { label: 'Thay toàn bộ sản phẩm' },
+                      { label: 'Chỉ chuyển hình in' },
+                    ],
+                  },
+                ]
+              : [],
         });
       if (prompt.startsWith('Phân tích'))
         return Promise.resolve({ images: [] });
@@ -65,10 +78,30 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
         return Promise.resolve({ verdict: 'pass', notes: ['Đúng cảnh đích.'] });
       const data = JSON.parse(prompt.split('DỮ LIỆU:\n')[1]) as {
         tasks: unknown[];
+        autoAnswers?: { question: string; answer: string }[];
       };
       return Promise.resolve({
         summary: 'Kế hoạch thử nghiệm',
-        questions: [],
+        questions:
+          (prompt.includes('test-auto-loop') ||
+            (prompt.includes('test-clarification') &&
+              !data.autoAnswers?.length)) &&
+          !prompt.includes('Thông tin bổ sung mới nhất')
+            ? [
+                {
+                  question: prompt.includes('test-auto-loop')
+                    ? `Xác nhận bước ${(data.autoAnswers?.length ?? 0) + 1}?`
+                    : 'Bạn muốn thay sản phẩm hay chỉ chuyển hình in?',
+                  options: [
+                    {
+                      label: 'Thay toàn bộ sản phẩm',
+                      description: 'Giữ bối cảnh ảnh tham chiếu.',
+                    },
+                    { label: 'Chỉ chuyển hình in' },
+                  ],
+                },
+              ]
+            : [],
         items: data.tasks.map((_, index) => ({
           title: `Ảnh ${index + 1}`,
           prompt: 'Thay sản phẩm trong ảnh đích bằng sản phẩm nguồn.',
@@ -222,6 +255,184 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
     return { conversation, run: await store.find<Run>('run', run.id) };
   };
 
+  it('keeps structured questions and resumes planning after answers without generating images', async () => {
+    const conversation = (
+      await post('/conversations', { title: 'Clarification' }).expect(201)
+    ).body as Conversation;
+    const input = {
+      id: randomUUID(),
+      text: 'test-clarification: Thay sản phẩm trong ảnh tham chiếu.',
+      operation: 'mockup_ai',
+      sourceIds: [source.id],
+      targetIds: [target.id],
+    };
+    await post(`/conversations/${conversation.id}/messages`, input).expect(202);
+    await worker.tick();
+    await wait(
+      async () =>
+        (await store.find<Step>('step', `${input.id}:plan`))?.state === 'done',
+    );
+    const waiting = (await get(`/conversations/${conversation.id}`).expect(200))
+      .body as { runs: Run[] };
+    expect(waiting.runs[0].state).toBe('needs_input');
+    expect(waiting.runs[0].approvalMode).toBe('manual');
+    expect(waiting.runs[0].autoAnswers).toBeUndefined();
+    expect(waiting.runs[0].questions[0]).toContain('thay sản phẩm');
+    expect(waiting.runs[0].clarifications[0].options[0].label).toBe(
+      'Thay toàn bộ sản phẩm',
+    );
+    const paidCalls = ai.replaceBackground.mock.calls.length;
+    await post(`/runs/${input.id}/start`, {
+      updatedAt: waiting.runs[0].updatedAt,
+    }).expect(409);
+    const answer = {
+      ...input,
+      id: randomUUID(),
+      text: `${input.text}\nThông tin bổ sung mới nhất: Thay toàn bộ sản phẩm.`,
+    };
+    await post(`/conversations/${conversation.id}/messages`, answer).expect(
+      202,
+    );
+    await post(`/conversations/${conversation.id}/messages`, answer).expect(
+      202,
+    );
+    await worker.tick();
+    await wait(
+      async () => (await store.find<Run>('run', answer.id))?.state === 'draft',
+    );
+    const detail = (await get(`/conversations/${conversation.id}`).expect(200))
+      .body as { runs: Run[]; conversation: Conversation };
+    expect(detail.runs).toHaveLength(2);
+    expect(detail.runs[1].questions).toEqual([]);
+    expect(detail.runs[1].sourceIds).toEqual([source.id]);
+    expect(detail.runs[1].targetIds).toEqual([target.id]);
+    expect(
+      detail.conversation.messages.filter(
+        (message) => message.runId === answer.id && message.role === 'user',
+      ),
+    ).toHaveLength(1);
+    expect(ai.replaceBackground.mock.calls.length).toBe(paidCalls);
+    await post(`/runs/${answer.id}/cancel`);
+  });
+
+  it('prioritizes missing attachments over model questions so required inputs stay actionable', async () => {
+    const conversation = (
+      await post('/conversations', { title: 'Missing inputs' }).expect(201)
+    ).body as Conversation;
+    const id = randomUUID();
+    ai.agentJSON.mockResolvedValueOnce({
+      operation: 'mockup_ai',
+      summary: 'Cần ảnh để tạo mockup.',
+      questions: Array.from(
+        { length: 5 },
+        (_, index) => `Câu hỏi ${index + 1}`,
+      ),
+    });
+    await post(`/conversations/${conversation.id}/messages`, {
+      id,
+      text: 'Tạo mockup sản phẩm',
+      operation: 'auto',
+      approvalMode: 'auto',
+    }).expect(202);
+    await worker.tick();
+    await wait(
+      async () =>
+        (await store.find<Step>('step', `${id}:plan`))?.state === 'done',
+    );
+    const run = await store.find<Run>('run', id);
+    expect(run.state).toBe('needs_input');
+    expect(
+      run.clarifications.slice(0, 2).map((question) => question.input),
+    ).toEqual(['source', 'reference']);
+    expect(run.questions).toHaveLength(5);
+    expect(run.autoAnswers).toBeUndefined();
+    await post(`/runs/${id}/cancel`);
+  });
+
+  it.each(['mockup_ai', 'auto'])(
+    'auto approval resolves recommendations for %s in the worker and retains final prompt approval',
+    async (operation) => {
+      const marker =
+        operation === 'auto' ? 'test-auto-choice' : 'test-clarification';
+      const paid = ai.replaceBackground.mock.calls.length;
+      const { conversation, run } = await newRun({
+        text: `${marker}: Thay toàn bộ sản phẩm nguồn vào ảnh tham chiếu.`,
+        operation,
+        approvalMode: 'auto',
+      });
+      expect(run.approvalMode).toBe('auto');
+      expect(run.state).toBe('draft');
+      expect(run.autoAnswers).toEqual([
+        expect.objectContaining({ answer: 'Thay toàn bộ sản phẩm' }),
+      ]);
+      expect(run.autoApprovalRounds).toBe(1);
+      expect(run.questions).toEqual([]);
+      expect(run.brief).toContain(marker);
+      expect(ai.replaceBackground.mock.calls.length).toBe(paid);
+      const history = (
+        await get(`/conversations/${conversation.id}`).expect(200)
+      ).body as { conversation: Conversation };
+      expect(
+        history.conversation.messages.some(
+          (message) =>
+            message.role === 'assistant' &&
+            message.text.includes('Auto approval') &&
+            message.text.includes('Thay toàn bộ sản phẩm'),
+        ),
+      ).toBe(true);
+      expect(
+        await store.query<Step>('step', { runId: run.id, type: 'image' }),
+      ).toEqual([]);
+      await post(`/runs/${run.id}/cancel`);
+    },
+  );
+
+  it('bounds automatic clarification rounds and falls back to manual choices', async () => {
+    const conversation = (await post('/conversations', { title: 'Auto loop' }))
+      .body as Conversation;
+    const id = randomUUID();
+    await post(`/conversations/${conversation.id}/messages`, {
+      id,
+      text: 'test-auto-loop: Tạo mockup',
+      operation: 'mockup_ai',
+      sourceIds: [source.id],
+      targetIds: [target.id],
+      approvalMode: 'auto',
+    }).expect(202);
+    await worker.tick();
+    await wait(
+      async () =>
+        (await store.find<Step>('step', `${id}:plan`))?.state === 'done',
+    );
+    const run = await store.find<Run>('run', id);
+    expect(run.state).toBe('needs_input');
+    expect(run.autoApprovalRounds).toBe(2);
+    expect(run.autoAnswers).toHaveLength(2);
+    expect(run.questions).toEqual(['Xác nhận bước 3?']);
+    await post(`/runs/${id}/start`, { updatedAt: run.updatedAt }).expect(409);
+    await post(`/runs/${id}/cancel`);
+  });
+
+  it('validates approval modes and never accepts client-supplied automatic answers', async () => {
+    const conversation = (
+      await post('/conversations', { title: 'Approval validation' })
+    ).body as Conversation;
+    const input = {
+      id: randomUUID(),
+      text: 'Tạo thiết kế',
+      operation: 'design',
+    };
+    await post(`/conversations/${conversation.id}/messages`, {
+      ...input,
+      approvalMode: 'full-access',
+    }).expect(400);
+    await post(`/conversations/${conversation.id}/messages`, {
+      ...input,
+      approvalMode: 'auto',
+      autoAnswers: [{ question: 'fake', answer: 'fake' }],
+    }).expect(400);
+  });
+
   it('requires authentication and scopes assets to their owner', async () => {
     await request(http()).get('/api/agent/assets').expect(401);
     await get(`/assets/${source.id}/content`, otherToken).expect(404);
@@ -324,6 +535,186 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
       .expect(200);
     expect((await store.find<Run>('run', run.id))?.state).toBe('completed');
   });
+  it('persists changed image inputs, invalidates old approvals and keeps the old image/prompt snapshot', async () => {
+    const { run } = await newRun();
+    const inputs = {
+      sourceIds: [target.id],
+      targetIds: [source.id],
+      templateIds: [],
+    };
+    const changed = (
+      await request(http())
+        .patch(`/api/agent/runs/${run.id}/inputs`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ ...inputs, updatedAt: run.updatedAt })
+        .expect(200)
+    ).body as Run;
+    expect(changed.pendingInputs).toEqual(inputs);
+    expect(changed.sourceIds).toEqual(run.sourceIds);
+    expect(changed.targetIds).toEqual(run.targetIds);
+    expect(changed.items).toEqual(run.items);
+    expect(changed.updatedAt).not.toBe(run.updatedAt);
+    for (const updatedAt of [run.updatedAt, changed.updatedAt]) {
+      const response = await post(`/runs/${run.id}/start`, {
+        updatedAt,
+      }).expect(409);
+      expect((response.body as { code: string }).code).toBe(
+        'AGENT_INPUTS_CHANGED',
+      );
+    }
+    await request(http())
+      .patch(`/api/agent/runs/${run.id}/plan`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        updatedAt: changed.updatedAt,
+        items: [{ title: 'Old plan', prompt: 'Must not use the old images' }],
+      })
+      .expect(409);
+    const detail = (
+      await get(`/conversations/${run.conversationId}`).expect(200)
+    ).body as { runs: Run[]; conversation: Conversation };
+    expect(detail.runs[0].pendingInputs).toEqual(inputs);
+    expect(
+      detail.conversation.messages.some(
+        (message) =>
+          JSON.stringify(message.attachments) === JSON.stringify(inputs),
+      ),
+    ).toBe(true);
+    expect(
+      await store.query<Step>('step', { runId: run.id, type: 'image' }),
+    ).toEqual([]);
+    await post(`/runs/${run.id}/cancel`);
+  });
+
+  it('validates input ownership, image roles, revisions and refuses edits after generation is queued', async () => {
+    const { run } = await newRun();
+    const route = `/api/agent/runs/${run.id}/inputs`;
+    const patch = (body: object, auth = token) =>
+      request(http())
+        .patch(route)
+        .set('Authorization', `Bearer ${auth}`)
+        .send(body);
+    const input = {
+      sourceIds: [target.id],
+      targetIds: [source.id],
+      templateIds: [],
+      updatedAt: run.updatedAt,
+    };
+    await request(http()).patch(route).send(input).expect(401);
+    await patch(input, otherToken).expect(404);
+    await patch({ ...input, sourceIds: [randomUUID()] }).expect(404);
+    await patch({ ...input, targetIds: [target.id] }).expect(400);
+    await patch({ ...input, sourceIds: [target.id, target.id] }).expect(400);
+    await patch({ ...input, updatedAt: '2000-01-01T00:00:00.000Z' }).expect(
+      409,
+    );
+    await post(`/runs/${run.id}/start`, {
+      updatedAt: run.updatedAt,
+      inputs: {
+        sourceIds: [target.id],
+        targetIds: [source.id],
+        templateIds: [],
+      },
+    }).expect(409);
+    expect(
+      (await store.find<Run>('run', run.id)).pendingInputs,
+    ).toBeUndefined();
+    await post(`/runs/${run.id}/start`, {
+      updatedAt: run.updatedAt,
+      inputs: {
+        sourceIds: run.sourceIds,
+        targetIds: run.targetIds,
+        templateIds: run.templateIds,
+      },
+    }).expect(202);
+    await patch(input).expect(409);
+    await post(`/runs/${run.id}/cancel`);
+  });
+
+  it('replans the same workflow stage using pending images without generating against the obsolete plan', async () => {
+    const workflow = (
+      await post('/workflows', {
+        name: 'Changed inputs workflow',
+        description: '',
+        archived: false,
+        steps: [
+          {
+            name: 'Mockup',
+            operation: 'mockup_ai',
+            instructions: 'Thay sản phẩm vào cảnh tham chiếu.',
+            source: 'initial',
+            count: 1,
+          },
+        ],
+      }).expect(201)
+    ).body as CustomWorkflow;
+    const conversation = (
+      await post('/conversations', { title: 'Changed inputs workflow' })
+    ).body as Conversation;
+    const launched = (
+      await post(`/workflows/${workflow.id}/launch`, {
+        id: randomUUID(),
+        conversationId: conversation.id,
+        brief: 'Thay sản phẩm theo ảnh mới.',
+        sourceIds: [source.id],
+        targetIds: [target.id],
+        templateIds: [],
+        productType: 'POD',
+        provider: 'shopaikey',
+        approvalMode: 'auto',
+      }).expect(201)
+    ).body as { run: Run; execution: WorkflowExecution };
+    await worker.tick();
+    await wait(
+      async () =>
+        (await store.find<Run>('run', launched.run.id))?.state === 'draft',
+    );
+    const draft = await store.find<Run>('run', launched.run.id);
+    const inputs = {
+      sourceIds: [target.id],
+      targetIds: [source.id],
+      templateIds: [],
+    };
+    await request(http())
+      .patch(`/api/agent/runs/${draft.id}/inputs`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ ...inputs, updatedAt: draft.updatedAt })
+      .expect(200);
+    const paid = ai.replaceBackground.mock.calls.length;
+    const id = randomUUID();
+    const replanned = (
+      await post(`/workflow-executions/${launched.execution.id}/replan`, {
+        id,
+        answer: 'Phân tích lại toàn bộ ảnh mới.',
+      }).expect(201)
+    ).body as { run: Run; execution: WorkflowExecution };
+    expect(replanned.run.sourceIds).toEqual(inputs.sourceIds);
+    expect(replanned.run.targetIds).toEqual(inputs.targetIds);
+    expect(replanned.run.approvalMode).toBe('auto');
+    expect(replanned.run.pendingInputs).toBeUndefined();
+    expect(replanned.execution.stage).toBe(0);
+    expect(replanned.execution.runIds[0]).toBe(id);
+    await worker.tick();
+    await wait(
+      async () => (await store.find<Run>('run', id))?.state === 'draft',
+    );
+    await post(`/runs/${draft.id}/start`, {
+      updatedAt: draft.updatedAt,
+    }).expect(409);
+    expect(ai.replaceBackground.mock.calls.length).toBe(paid);
+    await request(http())
+      .patch(`/api/agent/runs/${draft.id}/inputs`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        sourceIds: [],
+        targetIds: [],
+        templateIds: [],
+        updatedAt: draft.updatedAt,
+      })
+      .expect(409);
+    await post(`/runs/${id}/cancel`);
+  });
+
   it('does not accept stale prompt edits or start using an unseen plan version', async () => {
     const { run } = await newRun();
     await request(http())
@@ -762,6 +1153,7 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
       templateIds: [],
       productType: 'T-shirt',
       provider: 'shopaikey',
+      approvalMode: 'auto',
     };
     await post(`/workflows/${workflow.id}/launch`, launch, otherToken).expect(
       404,
@@ -787,6 +1179,8 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
       await post(`/workflows/${workflow.id}/launch`, launch).expect(201)
     ).body as { run: Run };
     expect(duplicate.run.id).toBe(launched.run.id);
+    expect(launched.run.approvalMode).toBe('auto');
+    expect(launched.execution.approvalMode).toBe('auto');
     await post(`/workflow-executions/${launched.execution.id}/stages/1`).expect(
       409,
     );
@@ -832,15 +1226,17 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
         .send({ review: 'approved' })
         .expect(200);
     const next = (
-      await post(
-        `/workflow-executions/${launched.execution.id}/stages/1`,
-      ).expect(201)
+      await post(`/workflow-executions/${launched.execution.id}/stages/1`, {
+        approvalMode: 'manual',
+      }).expect(201)
     ).body as { execution: WorkflowExecution; run: Run };
     expect(next.run.sourceIds.sort()).toEqual(
       steps.map((step) => step.resultId).sort(),
     );
     expect(next.run.count).toBe(2);
     expect(next.run.workflow.revision).toBe(1);
+    expect(next.run.approvalMode).toBe('manual');
+    expect(next.execution.approvalMode).toBe('manual');
     expect(next.execution.stage).toBe(1);
     const repeated = (
       await post(
@@ -908,14 +1304,32 @@ describe('POD agent with real MongoDB (mocked AI and R2)', () => {
     ).toBe(retry.id);
     await store.patch<Run>('run', retry.id, owner, { state: 'failed' });
     const replanId = randomUUID();
+    await post(`/workflow-executions/${launched.execution.id}/replan`, {
+      id: randomUUID(),
+      answer: 'Dùng ảnh mới',
+      sourceIds: [randomUUID()],
+    }).expect(404);
     const replanned = (
       await post(`/workflow-executions/${launched.execution.id}/replan`, {
         id: replanId,
         answer: 'Giữ nguyên chữ và màu sắc trên thiết kế',
+        sourceIds: [source.id],
+        targetIds: [target.id],
+        approvalMode: 'manual',
       }).expect(201)
     ).body as { run: Run };
     expect(replanned.run.brief).toContain('Giữ nguyên chữ');
-    expect(replanned.run.sourceIds).toEqual(retry.sourceIds);
+    expect(replanned.run.sourceIds).toEqual([source.id]);
+    expect(replanned.run.targetIds).toEqual([target.id]);
+    expect(replanned.run.approvalMode).toBe('manual');
+    expect(
+      (
+        await store.find<WorkflowExecution>(
+          'workflow-execution',
+          launched.execution.id,
+        )
+      ).approvalMode,
+    ).toBe('manual');
     const repeatedPlan = (
       await post(`/workflow-executions/${launched.execution.id}/replan`, {
         id: replanId,

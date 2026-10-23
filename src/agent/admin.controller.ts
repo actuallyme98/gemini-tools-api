@@ -28,6 +28,7 @@ import {
 import { idSchema, parse, userSchema } from './agent.schemas';
 import type { DiagnosticQuery } from './admin-diagnostics';
 import { ApiError } from '../common/api-error';
+import { ProviderUsageService } from './provider-usage.service';
 
 const reason = Joi.string().trim().min(3).max(500).required();
 const diagnosticSchema = Joi.object({
@@ -93,7 +94,11 @@ export class AdminController {
   constructor(
     private readonly admin: AdminService,
     private readonly auth: AgentAuthService,
+    private readonly providerUsage: ProviderUsageService,
   ) {}
+  @Get('provider-usage') @Header('Cache-Control', 'no-store') usage() {
+    return this.providerUsage.usage();
+  }
   @Get('overview') @Header('Cache-Control', 'no-store') overview(
     @Req() req: AgentRequest,
   ) {

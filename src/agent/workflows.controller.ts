@@ -110,6 +110,7 @@ export class WorkflowsController {
           .max(20)
           .default([]),
         validateVisually: Joi.boolean().default(true),
+        approvalMode: Joi.string().valid('manual', 'auto').default('manual'),
       }),
       body,
     );
@@ -124,7 +125,14 @@ export class WorkflowsController {
     @Req() req: AgentRequest,
     @Param('id') id: string,
     @Param('stage') stage: string,
+    @Body() body: unknown,
   ) {
+    const input = parse<{ approvalMode?: 'manual' | 'auto' }>(
+      Joi.object({
+        approvalMode: Joi.string().valid('manual', 'auto'),
+      }).default({}),
+      body,
+    );
     const index = parse<number>(
       Joi.number().integer().min(0).max(7).required(),
       Number(stage),
@@ -134,6 +142,7 @@ export class WorkflowsController {
       parse<string>(idSchema.required(), id),
       index,
       String(req.res?.getHeader('X-Request-Id') || randomUUID()),
+      input.approvalMode,
     );
   }
   @Post('workflow-executions/:id/replan') replan(
@@ -141,10 +150,14 @@ export class WorkflowsController {
     @Param('id') id: string,
     @Body() body: unknown,
   ) {
-    const input = parse<{ id: string; answer: string }>(
+    const input = parse<Parameters<WorkflowsService['replan']>[2]>(
       Joi.object({
         id: idSchema.required(),
-        answer: Joi.string().trim().min(3).max(2000).required(),
+        answer: Joi.string().trim().min(3).max(12000).required(),
+        approvalMode: Joi.string().valid('manual', 'auto'),
+        sourceIds: Joi.array().items(idSchema).max(20).unique(),
+        targetIds: Joi.array().items(idSchema).max(20).unique(),
+        templateIds: Joi.array().items(idSchema).max(20).unique(),
       }),
       body,
     );

@@ -3,6 +3,7 @@ import { AIModule } from '../ai/ai.module';
 import { R2Module } from '../r2/r2.module';
 import { AdminService } from './admin.service';
 import { AdminController } from './admin.controller';
+import { ProviderUsageService } from './provider-usage.service';
 import { AgentAssetsService } from './agent-assets.service';
 import { AgentService } from './agent.service';
 import { AgentWorker } from './agent.worker';
@@ -16,6 +17,7 @@ import { TaskQueueModule } from '../queue/task-queue.module';
   imports: [AIModule, R2Module, AgentIdentityModule, TaskQueueModule],
   providers: [
     AdminService,
+    ProviderUsageService,
     AgentAssetsService,
     AgentService,
     AgentWorker,

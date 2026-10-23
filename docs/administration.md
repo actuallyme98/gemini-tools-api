@@ -5,6 +5,7 @@
 ## Chức năng
 
 - **Tổng quan:** tài khoản, phiên còn hạn, trạng thái công việc, công việc tạo trong 7 ngày UTC, tài sản và ảnh dự phòng MongoDB. Số liệu tổng hợp từ MongoDB, không lấy mẫu danh sách cá nhân. Dung lượng ảnh là kích thước file logic, không phải chi phí AI hoặc hóa đơn R2.
+- **Số dư & mức sử dụng AI:** trong Tổng quan, hiển thị credit còn lại, đã dùng và thanh phần trăm từ các kết nối provider đã cấu hình. Backend gọi API số dư, không gọi model tính phí, gộp các request đồng thời và cache kết quả thành công 60 giây. Nút Làm mới vẫn dùng cache còn hạn. Lỗi từng provider không che số dư provider khác và không bị đổi thành số 0. Endpoint `GET /api/agent/admin/provider-usage` chỉ dành cho admin, `Cache-Control: no-store`; không trả API key, tên tài khoản hoặc phản hồi thô.
 - **Tài khoản:** tìm email, lọc quyền/trạng thái, phân trang; tạo tài khoản; đổi admin/designer; khóa/mở khóa; đặt lại mật khẩu; thu hồi tất cả phiên. Không xóa tài khoản hoặc tài sản. Không trả password hash, Google subject, token hoặc ID phiên cho client.
 - **Công việc:** xem metadata toàn công ty, lọc trạng thái/ID; xem bước xử lý, thời lượng, mã lỗi và request ID; dừng các bước chưa thực hiện với lý do. Request đã gửi hoặc bước worker đã nhận có thể tiếp tục hoàn tất. Không tự động retry hoặc tạo request AI tính phí từ trang quản trị.
 - **Audit logs:** lịch sử quản trị trong MongoDB và nhật ký request/AI theo ngày UTC. Chọn nguồn **API** hoặc **Worker xử lý tác vụ**, tìm lỗi/request ID, lọc lỗi/cảnh báo và xuất trang JSON. Danh sách chỉ có metadata; mở **Chi tiết** để đọc chuỗi sự kiện cùng request ID, model/transport, prompt thực tế, thứ tự ảnh/MIME/byte/hash và lỗi upstream. Không trả headers, credential, URL riêng tư, base64 hoặc đường dẫn file ảnh. Nhật ký file đọc theo thứ tự ghi, mỗi lượt tối đa 10.000 dòng mới; dùng Đọc tiếp khi cần. Khi chạy nhiều replica cần thu thập log tập trung.
@@ -25,6 +26,14 @@ API quản trị trả `Cache-Control: no-store`. Cập nhật dùng `updatedAt`
 Domain Google chỉ lấy từ cấu hình công ty trong MongoDB và chỉnh trong Vận hành, không cần restart hoặc deploy lại. Khi chưa cấu hình, danh sách mặc định rỗng và Google login bị tắt; không đọc danh sách domain từ `.env`. Client ID vẫn lấy từ `GOOGLE_CLIENT_ID`. Domain công ty phải khớp claim Google Workspace đã xác minh; không kiểm tra chuỗi “có @lcg”. Thay đổi domain áp dụng ở lượt login mới; thu hồi riêng phiên đã cấp khi cần. Xem [google-auth.md](google-auth.md).
 
 Tạm dừng hàng đợi lưu MongoDB, mọi worker kiểm tra trước khi claim bước mới. Lease recovery vẫn hoạt động khi pause. Bước đã nhận và request đang xử lý có thể hoàn tất. Nếu `QUEUE_WORKER_ENABLED=false` trên server, bỏ pause không tự bật worker: cần sửa cấu hình triển khai.
+
+## Nguồn dữ liệu số dư
+
+- Provider 1: [ShopAIKey Usage API](https://shopaikey.com/en), `GET /usage?apiKey=...`, dùng `balance`, `used`, `total`; phần trăm là `used / total`. Key chỉ được gửi từ backend, không ghi URL có key vào log.
+- Provider văn bản: [VyceAI Key info](https://vyceai.com/docs), `GET /v1/me` với Bearer key, dùng `balance` và `totalSpent`. Khi không có tổng credit, thanh thể hiện `totalSpent / (totalSpent + balance)`; UI ghi rõ đây không phải hạn mức tháng/tổng nạp. Số dư có thể dùng chung với ứng dụng khác hoặc các key khác của tài khoản; không gọi đó là chi phí riêng của LCG Agent.
+- Provider 2: kết nối native Gemini chưa có truy vấn số dư qua API key trong tích hợp này. [Google hướng dẫn quản lý số dư qua AI Studio Billing](https://ai.google.dev/gemini-api/docs/billing). UI báo chưa hỗ trợ; không tạo thanh hoặc số dư giả.
+
+Đơn vị là credit USD của provider, không phải số tiền VND thực thanh toán. Khi chỉ có số dư mà thiếu dữ liệu đã dùng/tổng, không tính phần trăm. Số âm vẫn được giữ để thể hiện nợ/overage; thanh được giới hạn 0–100%.
 
 ## Chi tiết request log
 

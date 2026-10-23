@@ -31,6 +31,7 @@ export type LaunchWorkflow = Pick<
   | 'research'
   | 'researchSources'
   | 'validateVisually'
+  | 'approvalMode'
 > & { id: string };
 
 @Injectable()
@@ -157,6 +158,7 @@ export class WorkflowsService {
       conversationId: input.conversationId,
       workflow,
       brief: input.brief,
+      approvalMode: input.approvalMode ?? 'manual',
       sourceIds: input.sourceIds,
       targetIds: input.targetIds,
       templateIds: input.templateIds,
@@ -188,7 +190,13 @@ export class WorkflowsService {
     return this.stage(owner, execution.id, 0, requestId);
   }
 
-  async stage(owner: string, id: string, index: number, requestId: string) {
+  async stage(
+    owner: string,
+    id: string,
+    index: number,
+    requestId: string,
+    approvalMode?: Run['approvalMode'],
+  ) {
     const execution = await this.store.get<WorkflowExecution>(
       'workflow-execution',
       id,
@@ -227,7 +235,7 @@ export class WorkflowsService {
               'workflow-execution',
               id,
               owner,
-              { stage: index },
+              { stage: index, approvalMode: existing.approvalMode ?? 'manual' },
               { stage: execution.stage },
             )
           : execution;
@@ -275,6 +283,7 @@ export class WorkflowsService {
         id: execution.runIds[index],
         text: `Workflow: ${execution.workflow.name}\nBước ${index + 1}/${execution.workflow.steps.length}: ${step.name}\nYêu cầu chung: ${execution.brief}\nHướng dẫn bước này: ${step.instructions}`,
         operation: step.operation,
+        approvalMode: approvalMode ?? execution.approvalMode ?? 'manual',
         sourceIds,
         targetIds: step.operation === 'mockup_ai' ? execution.targetIds : [],
         templateIds:
@@ -302,7 +311,7 @@ export class WorkflowsService {
             'workflow-execution',
             id,
             owner,
-            { stage: index },
+            { stage: index, approvalMode: run.approvalMode },
             { stage: execution.stage },
           )
         : execution;
@@ -320,7 +329,9 @@ export class WorkflowsService {
   async replan(
     owner: string,
     id: string,
-    input: { id: string; answer: string },
+    input: { id: string; answer: string } & Partial<
+      Pick<Run, 'sourceIds' | 'targetIds' | 'templateIds' | 'approvalMode'>
+    >,
     requestId: string,
   ) {
     const execution = await this.store.get<WorkflowExecution>(
@@ -346,7 +357,10 @@ export class WorkflowsService {
         'WORKFLOW_REQUEST_CONFLICT',
         'Mã yêu cầu đã thuộc một công việc khác.',
       );
-    if (!['needs_input', 'failed'].includes(prior.state))
+    if (
+      !['needs_input', 'failed'].includes(prior.state) &&
+      !(prior.state === 'draft' && prior.pendingInputs)
+    )
       throw new ApiError(
         409,
         'WORKFLOW_REPLAN_INVALID',
@@ -364,6 +378,15 @@ export class WorkflowsService {
       execution.conversationId,
       {
         ...prior,
+        approvalMode: input.approvalMode ?? prior.approvalMode ?? 'manual',
+        sourceIds:
+          input.sourceIds ?? prior.pendingInputs?.sourceIds ?? prior.sourceIds,
+        targetIds:
+          input.targetIds ?? prior.pendingInputs?.targetIds ?? prior.targetIds,
+        templateIds:
+          input.templateIds ??
+          prior.pendingInputs?.templateIds ??
+          prior.templateIds,
         id: input.id,
         text,
         count: execution.workflow.steps[execution.stage].count,
@@ -376,7 +399,10 @@ export class WorkflowsService {
       'workflow-execution',
       id,
       owner,
-      { runIds },
+      {
+        runIds,
+        approvalMode: input.approvalMode ?? execution.approvalMode ?? 'manual',
+      },
       { stage: execution.stage, [`runIds.${execution.stage}`]: prior.id },
     );
     if (!updated) {

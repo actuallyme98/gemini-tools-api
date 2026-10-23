@@ -10,6 +10,7 @@ export const userSchema = loginSchema.keys({
   role: Joi.string().valid('admin', 'designer').default('designer'),
 });
 export const messageSchema = Joi.object({
+  approvalMode: Joi.string().valid('manual', 'auto').default('manual'),
   id: idSchema.required(),
   text: Joi.string().trim().min(3).max(12000).required(),
   operation: Joi.string()
@@ -38,9 +39,30 @@ export const messageSchema = Joi.object({
     .default([]),
   validateVisually: Joi.boolean().default(true),
 });
+export const questionsSchema = Joi.array()
+  .items(
+    Joi.alternatives().try(
+      Joi.string().trim().min(1).max(1000),
+      Joi.object({
+        question: Joi.string().trim().min(3).max(1000).required(),
+        options: Joi.array()
+          .items(
+            Joi.object({
+              label: Joi.string().trim().min(1).max(160).required(),
+              description: Joi.string().max(400).allow(''),
+            }),
+          )
+          .min(2)
+          .max(4)
+          .required(),
+      }),
+    ),
+  )
+  .max(5)
+  .required();
 export const planResponseSchema = Joi.object({
   summary: Joi.string().max(6000).required(),
-  questions: Joi.array().items(Joi.string().max(1000)).max(5).required(),
+  questions: questionsSchema,
   items: Joi.array()
     .items(
       Joi.object({
@@ -64,8 +86,17 @@ export const editPlanSchema = Joi.object({
     .max(20)
     .required(),
 });
+export const inputSelectionSchema = Joi.object({
+  sourceIds: Joi.array().items(idSchema).max(20).unique().required(),
+  targetIds: Joi.array().items(idSchema).max(20).unique().required(),
+  templateIds: Joi.array().items(idSchema).max(20).unique().required(),
+});
+export const changeInputsSchema = inputSelectionSchema.keys({
+  updatedAt: Joi.string().isoDate().required(),
+});
 export const startSchema = Joi.object({
   updatedAt: Joi.string().isoDate().required(),
+  inputs: inputSelectionSchema,
 });
 export const templateSchema = Joi.object({
   name: Joi.string().trim().max(120).required(),

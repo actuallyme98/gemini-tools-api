@@ -30,6 +30,7 @@ import { AgentService, publicAsset } from './agent.service';
 import { AgentAssetsService } from './agent-assets.service';
 import {
   editPlanSchema,
+  changeInputsSchema,
   idSchema,
   loginSchema,
   messageSchema,
@@ -227,6 +228,17 @@ export class AgentController {
       String(req.res?.getHeader('X-Request-Id') || randomUUID()),
     );
   }
+  @Patch('runs/:id/inputs') changeInputs(
+    @Req() req: AgentRequest,
+    @Param('id') id: string,
+    @Body() body: unknown,
+  ) {
+    return this.agent.changeInputs(
+      req.agentUser.id,
+      parse<string>(idSchema.required(), id),
+      parse(changeInputsSchema, body),
+    );
+  }
   @Patch('runs/:id/plan') editPlan(
     @Req() req: AgentRequest,
     @Param('id') id: string,
@@ -243,10 +255,15 @@ export class AgentController {
     @Param('id') id: string,
     @Body() body: unknown,
   ) {
+    const input = parse<{ updatedAt: string; inputs?: Run['pendingInputs'] }>(
+      startSchema,
+      body,
+    );
     return this.agent.start(
       req.agentUser.id,
       parse<string>(idSchema.required(), id),
-      parse<{ updatedAt: string }>(startSchema, body).updatedAt,
+      input.updatedAt,
+      input.inputs,
     );
   }
   @Post('runs/:id/cancel') cancel(

@@ -109,6 +109,7 @@ export interface CustomWorkflow extends Entity {
   archived: boolean;
 }
 export interface WorkflowExecution extends Entity {
+  approvalMode?: 'manual' | 'auto';
   conversationId: string;
   workflow: CustomWorkflow;
   brief: string;
@@ -144,7 +145,20 @@ export interface PlanItem {
   templateId?: string;
   templateSnapshot?: MockupTemplate;
 }
+export type PlanQuestion = {
+  question: string;
+  options: { label: string; description?: string }[];
+  input?: 'source' | 'reference' | 'template' | 'single_source';
+};
 export interface Run extends Entity {
+  pendingInputs?: {
+    sourceIds: string[];
+    targetIds: string[];
+    templateIds: string[];
+  };
+  approvalMode?: 'manual' | 'auto';
+  autoApprovalRounds?: number;
+  autoAnswers?: { question: string; answer: string }[];
   queueAdmission?: 'plan' | 'image';
   queueAdmissionReleased?: boolean;
   workflow?: {
@@ -177,6 +191,7 @@ export interface Run extends Entity {
   researchSources: { title: string; url: string; retrievedAt: string }[];
   summary: string;
   questions: string[];
+  clarifications?: PlanQuestion[];
   items: PlanItem[];
   analyses: Record<string, unknown>;
   validateVisually: boolean;

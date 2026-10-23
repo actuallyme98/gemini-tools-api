@@ -19,6 +19,7 @@ import {
 import { AgentAuthController } from '../src/agent/agent.controller';
 import { AdminController } from '../src/agent/admin.controller';
 import { AdminService } from '../src/agent/admin.service';
+import { ProviderUsageService } from '../src/agent/provider-usage.service';
 import { AgentService } from '../src/agent/agent.service';
 import { AgentAssetsService } from '../src/agent/agent-assets.service';
 import { AIService } from '../src/ai/ai.service';
@@ -104,6 +105,7 @@ describe('Company administration (real MongoDB)', () => {
         AgentGuard,
         AgentAdminGuard,
         AdminService,
+        ProviderUsageService,
         AgentService,
         { provide: TaskQueueService, useValue: new TestTaskQueue() },
         AuditLogService,
@@ -160,6 +162,7 @@ describe('Company administration (real MongoDB)', () => {
   it('rejects anonymous and designer access on every administration endpoint', async () => {
     for (const url of [
       '/overview',
+      '/provider-usage',
       '/users',
       '/runs',
       '/audit',
@@ -176,6 +179,14 @@ describe('Company administration (real MongoDB)', () => {
       staffToken,
     ).expect(403);
     await patch('/settings', {}, staffToken).expect(403);
+  });
+  it('allows only administrators to read uncached provider balance responses', async () => {
+    const result = await get('/provider-usage').expect(200);
+    expect(result.headers['cache-control']).toBe('no-store');
+    expect(result.body as unknown).toMatchObject({
+      items: [],
+      generatedAt: expect.any(String) as string,
+    });
   });
   it('returns paginated safe accounts, role/status/search filters and usage without hashes or Google subjects', async () => {
     const result = await get(

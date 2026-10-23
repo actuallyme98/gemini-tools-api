@@ -10,13 +10,19 @@ export type DiagnosticQuery = {
   limit: number;
   search: string;
   errorsOnly: boolean;
+  source?: 'api' | 'worker';
 };
+const redact = (value: string, length = 1000) =>
+  sanitizeErrorMessage(
+    value
+      .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]+\b/g, '[redacted]')
+      .replace(
+        /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+        '[redacted private key]',
+      ),
+    length,
+  );
 export function diagnosticSummary(input: Record<string, unknown>) {
-  const redact = (value: string) =>
-    sanitizeErrorMessage(value, 1000).replace(
-      /\beyJ[\w-]+\.[\w-]+\.[\w-]+\b/g,
-      '[redacted]',
-    );
   const result: Record<string, string | number | boolean> = {};
   for (const field of [
     'timestamp',
@@ -43,9 +49,94 @@ export function diagnosticSummary(input: Record<string, unknown>) {
   }
   return result;
 }
+
+// Only diagnostic fields are exposed; raw headers, credentials, URLs and image data stay private.
+const detailFields = new Set([
+  'timestamp',
+  'event',
+  'requestId',
+  'method',
+  'path',
+  'actorEmail',
+  'provider',
+  'model',
+  'imageModel',
+  'transport',
+  'runId',
+  'stepId',
+  'jobId',
+  'status',
+  'statusCode',
+  'upstreamStatus',
+  'durationMs',
+  'cancelled',
+  'code',
+  'message',
+  'reason',
+  'suggestion',
+  'diagnostic',
+  'validation',
+  'error',
+  'parts',
+  'image',
+  'index',
+  'type',
+  'text',
+  'sha256',
+  'characters',
+  'redacted',
+  'mimeType',
+  'bytes',
+  'base64Length',
+  'archiveUnavailable',
+  'responseId',
+  'modelVersion',
+  'promptFeedback',
+  'blockReason',
+  'blockReasonMessage',
+  'candidates',
+  'finishReason',
+  'finishMessage',
+  'safetyRatings',
+  'category',
+  'probability',
+  'probabilityScore',
+  'severity',
+  'severityScore',
+  'blocked',
+  'omitted',
+]);
+export function diagnosticDetails(input: Record<string, unknown>) {
+  let remaining = 64000;
+  let truncated = false;
+  const clean = (value: unknown, depth = 0, field = ''): unknown => {
+    if (typeof value === 'string') {
+      const limit = field === 'text' ? Math.min(remaining, 50000) : 1000;
+      if (field === 'text') remaining -= Math.min(value.length, limit);
+      if (value.length > limit) truncated = true;
+      return redact(value, limit);
+    }
+    if (typeof value === 'boolean') return value;
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+    if (depth >= 6 || !value || typeof value !== 'object') return undefined;
+    if (Array.isArray(value)) {
+      if (value.length > 40) truncated = true;
+      return value.slice(0, 40).map((item) => clean(item, depth + 1));
+    }
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => detailFields.has(key))
+        .map(([key, item]) => [key, clean(item, depth + 1, key)])
+        .filter(([, item]) => item !== undefined),
+    );
+  };
+  const result = clean(input) as Record<string, unknown>;
+  return { ...result, ...(truncated ? { truncated: true } : {}) };
+}
 export async function readAdminDiagnostics(
   directory: string,
   query: DiagnosticQuery,
+  requestId?: string,
 ) {
   if (
     !/^\d{4}-\d{2}-\d{2}$/.test(query.day) ||
@@ -56,7 +147,7 @@ export async function readAdminDiagnostics(
   const day = path.resolve(directory, query.day);
   const file = path.join(day, 'events.jsonl');
   const empty = {
-    items: [] as Record<string, string | number | boolean>[],
+    items: [] as Record<string, unknown>[],
     nextCursor: null as number | null,
     scanned: 0,
     malformed: 0,
@@ -93,6 +184,7 @@ export async function readAdminDiagnostics(
       crlfDelay: Infinity,
     });
     let lineNumber = 0;
+    let responseBytes = 0;
     const search = query.search.toLowerCase();
     for await (const line of lines) {
       lineNumber++;
@@ -109,13 +201,23 @@ export async function readAdminDiagnostics(
         const isError =
           Number(summary.status) >= 400 ||
           /fail|error|fallback|interrupt/i.test(String(summary.event));
-        if (
+        if (requestId) {
+          if (raw.requestId === requestId) {
+            const details = diagnosticDetails(raw);
+            empty.items.push(details);
+            responseBytes += Buffer.byteLength(JSON.stringify(details));
+          }
+        } else if (
           (!query.errorsOnly || isError) &&
           (!search || JSON.stringify(summary).toLowerCase().includes(search))
         )
           empty.items.push(summary);
       }
-      if (empty.items.length >= query.limit || empty.scanned >= 10000) {
+      if (
+        empty.items.length >= query.limit ||
+        empty.scanned >= 10000 ||
+        responseBytes >= 2 * 1024 * 1024
+      ) {
         empty.nextCursor = lineNumber;
         break;
       }

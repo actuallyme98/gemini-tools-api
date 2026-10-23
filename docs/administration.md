@@ -7,7 +7,7 @@
 - **Tổng quan:** tài khoản, phiên còn hạn, trạng thái công việc, công việc tạo trong 7 ngày UTC, tài sản và ảnh dự phòng MongoDB. Số liệu tổng hợp từ MongoDB, không lấy mẫu danh sách cá nhân. Dung lượng ảnh là kích thước file logic, không phải chi phí AI hoặc hóa đơn R2.
 - **Tài khoản:** tìm email, lọc quyền/trạng thái, phân trang; tạo tài khoản; đổi admin/designer; khóa/mở khóa; đặt lại mật khẩu; thu hồi tất cả phiên. Không xóa tài khoản hoặc tài sản. Không trả password hash, Google subject, token hoặc ID phiên cho client.
 - **Công việc:** xem metadata toàn công ty, lọc trạng thái/ID; xem bước xử lý, thời lượng, mã lỗi và request ID; dừng các bước chưa thực hiện với lý do. Request đã gửi hoặc bước worker đã nhận có thể tiếp tục hoàn tất. Không tự động retry hoặc tạo request AI tính phí từ trang quản trị.
-- **Audit logs:** lịch sử quản trị trong MongoDB và nhật ký request/AI theo ngày UTC từ volume log hiện có. Tìm lỗi/request ID, lọc lỗi/cảnh báo, xem metadata và xuất trang JSON. Không xuất raw prompt, ảnh hoặc request body. Nhật ký file đọc theo thứ tự ghi, mỗi lượt tối đa 10.000 dòng mới; dùng Đọc tiếp khi cần. Nhật ký file chỉ phản ánh replica API đang phục vụ request; khi chạy nhiều replica nên dùng hệ thống thu thập log tập trung.
+- **Audit logs:** lịch sử quản trị trong MongoDB và nhật ký request/AI theo ngày UTC. Chọn nguồn **API** hoặc **Worker xử lý tác vụ**, tìm lỗi/request ID, lọc lỗi/cảnh báo và xuất trang JSON. Danh sách chỉ có metadata; mở **Chi tiết** để đọc chuỗi sự kiện cùng request ID, model/transport, prompt thực tế, thứ tự ảnh/MIME/byte/hash và lỗi upstream. Không trả headers, credential, URL riêng tư, base64 hoặc đường dẫn file ảnh. Nhật ký file đọc theo thứ tự ghi, mỗi lượt tối đa 10.000 dòng mới; dùng Đọc tiếp khi cần. Khi chạy nhiều replica cần thu thập log tập trung.
 - **Vận hành:** tên workspace, domain Google được phép, tự cấp Designer hoặc chỉ nhận tài khoản đã tạo, tạm dừng/tiếp tục hàng đợi. Hiển thị cấu hình worker, concurrency, thời hạn phiên, retention log và mã hóa ảnh. Kết nối AI chỉ thể hiện trạng thái cấu hình, không thực hiện health probe tính phí. Bí mật tiếp tục nằm ở cấu hình triển khai.
 
 ## Bảo vệ truy cập và dữ liệu
@@ -25,6 +25,14 @@ API quản trị trả `Cache-Control: no-store`. Cập nhật dùng `updatedAt`
 Domain Google chỉ lấy từ cấu hình công ty trong MongoDB và chỉnh trong Vận hành, không cần restart hoặc deploy lại. Khi chưa cấu hình, danh sách mặc định rỗng và Google login bị tắt; không đọc danh sách domain từ `.env`. Client ID vẫn lấy từ `GOOGLE_CLIENT_ID`. Domain công ty phải khớp claim Google Workspace đã xác minh; không kiểm tra chuỗi “có @lcg”. Thay đổi domain áp dụng ở lượt login mới; thu hồi riêng phiên đã cấp khi cần. Xem [google-auth.md](google-auth.md).
 
 Tạm dừng hàng đợi lưu MongoDB, mọi worker kiểm tra trước khi claim bước mới. Lease recovery vẫn hoạt động khi pause. Bước đã nhận và request đang xử lý có thể hoàn tất. Nếu `QUEUE_WORKER_ENABLED=false` trên server, bỏ pause không tự bật worker: cần sửa cấu hình triển khai.
+
+## Chi tiết request log
+
+`GET /api/agent/admin/diagnostics/:requestId?day=YYYY-MM-DD&source=api|worker&cursor=0&limit=50` chỉ dành cho admin, trả `Cache-Control: no-store`. API kiểm tra UUID/ngày/nguồn và chặn symlink; chỉ cho phép các trường chẩn đoán đã định nghĩa, lọc secret cả với log cũ. `items` là sự kiện theo thứ tự ghi; `nextCursor` dùng để đọc phần kế tiếp. Mỗi trang tối đa 100 sự kiện, 10.000 dòng quét hoặc khoảng 2 MiB dữ liệu. Văn bản quá dài được giới hạn 50.000 ký tự/phần và 64.000 ký tự nội dung/sự kiện, có `truncated: true`. Metadata ảnh được giữ, không công khai bản sao ảnh.
+
+Ngày lọc là UTC của file log, không phải ngày tạo công việc. Tác vụ qua nửa đêm cần tra ngày kế tiếp; các bước Agent có request ID riêng trong tab Công việc. Log đã hết retention trả danh sách trống; nút Đọc tiếp vẫn có thể xuất hiện nếu chưa quét hết file.
+
+Compose gắn volume worker vào API dưới `/app/worker-logs:ro`, cấu hình `AUDIT_WORKER_LOG_DIR`. Worker vẫn chỉ ghi vào volume riêng để không tranh chấp cleanup/rotation với API. Khi chạy local cùng process, dùng nguồn API; nếu dùng worker riêng, đặt đường dẫn đọc tới journal của worker. Không cấu hình worker journal sẽ trả lỗi rõ ràng khi chọn nguồn Worker.
 
 ## Kiểm thử
 

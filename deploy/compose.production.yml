@@ -9,6 +9,7 @@ services:
       NODE_ENV: production
       PORT: '5177'
       AUDIT_LOG_DIR: /app/logs
+      AUDIT_WORKER_LOG_DIR: /app/worker-logs
       QUEUE_ENABLED: 'true'
       QUEUE_WORKER_ENABLED: 'false'
       REDIS_URL: redis://queue-redis:6379/0
@@ -17,6 +18,7 @@ services:
         condition: service_healthy
     volumes:
       - api-logs:/app/logs
+      - worker-logs:/app/worker-logs:ro
     ports:
       - '127.0.0.1:3021:5177'
     mem_limit: 1g

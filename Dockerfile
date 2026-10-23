@@ -18,7 +18,7 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package*.json ./
 COPY --chown=node:node scripts/read-audit-logs.cjs ./scripts/read-audit-logs.cjs
 COPY --chown=node:node scripts/agent-user.cjs ./scripts/agent-user.cjs
-RUN mkdir -p /app/logs && chown node:node /app/logs && chmod 700 /app/logs
+RUN mkdir -p /app/logs /app/worker-logs && chown node:node /app/logs /app/worker-logs && chmod 700 /app/logs /app/worker-logs
 USER node
 EXPOSE 5177
 HEALTHCHECK --interval=10s --timeout=5s --start-period=30s --retries=3 \

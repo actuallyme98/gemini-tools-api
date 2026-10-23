@@ -30,6 +30,29 @@ import type { DiagnosticQuery } from './admin-diagnostics';
 import { ApiError } from '../common/api-error';
 
 const reason = Joi.string().trim().min(3).max(500).required();
+const diagnosticSchema = Joi.object({
+  day: Joi.string()
+    .pattern(/^\d{4}-\d{2}-\d{2}$/)
+    .required(),
+  source: Joi.string().valid('api', 'worker').default('api'),
+  cursor: Joi.number().integer().min(0).max(1000000).default(0),
+  limit: Joi.number().integer().min(1).max(100).default(50),
+  search: Joi.string().trim().max(254).allow('').default(''),
+  errorsOnly: Joi.boolean().default(false),
+});
+function diagnosticQuery(query: unknown): DiagnosticQuery {
+  const result = diagnosticSchema.validate(query, {
+    convert: true,
+    allowUnknown: false,
+  });
+  if (result.error)
+    throw new ApiError(
+      400,
+      'AGENT_INPUT_INVALID',
+      result.error.details[0].message,
+    );
+  return result.value as DiagnosticQuery;
+}
 const listSchema = Joi.object({
   page: Joi.number().integer().min(1).max(2000).default(1),
   limit: Joi.number().integer().min(1).max(100).default(25),
@@ -145,26 +168,18 @@ export class AdminController {
   @Get('diagnostics') @Header('Cache-Control', 'no-store') diagnostics(
     @Query() query: unknown,
   ) {
-    const schema = Joi.object({
-      day: Joi.string()
-        .pattern(/^\d{4}-\d{2}-\d{2}$/)
-        .required(),
-      cursor: Joi.number().integer().min(0).max(1000000).default(0),
-      limit: Joi.number().integer().min(1).max(100).default(50),
-      search: Joi.string().trim().max(254).allow('').default(''),
-      errorsOnly: Joi.boolean().default(false),
-    });
-    const result = schema.validate(query, {
-      convert: true,
-      allowUnknown: false,
-    });
-    if (result.error)
-      throw new ApiError(
-        400,
-        'AGENT_INPUT_INVALID',
-        result.error.details[0].message,
-      );
-    return this.admin.diagnostics(result.value as DiagnosticQuery);
+    return this.admin.diagnostics(diagnosticQuery(query));
+  }
+  @Get('diagnostics/:requestId')
+  @Header('Cache-Control', 'no-store')
+  requestDiagnostics(
+    @Param('requestId') requestId: string,
+    @Query() query: unknown,
+  ) {
+    return this.admin.requestDiagnostics(
+      parse<string>(idSchema.required(), requestId),
+      diagnosticQuery(query),
+    );
   }
   @Get('settings') @Header('Cache-Control', 'no-store') settings(
     @Req() req: AgentRequest,

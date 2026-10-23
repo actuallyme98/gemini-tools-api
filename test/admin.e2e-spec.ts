@@ -114,6 +114,7 @@ describe('Company administration (real MongoDB)', () => {
             MONGODB_URI: mongo.getUri(),
             MONGODB_DATABASE: 'admin_test',
             AUDIT_LOG_DIR: directory,
+            AUDIT_WORKER_LOG_DIR: path.join(directory, 'worker'),
             GOOGLE_CLIENT_ID: 'test.apps.googleusercontent.com',
             GOOGLE_ALLOWED_DOMAINS: 'lcgmedia.uk',
           }),
@@ -164,6 +165,7 @@ describe('Company administration (real MongoDB)', () => {
       '/audit',
       '/settings',
       '/diagnostics?day=2026-10-23',
+      `/diagnostics/${randomUUID()}?day=2026-10-23`,
     ]) {
       await get(url, '').expect(401);
       await get(url, staffToken).expect(403);
@@ -538,5 +540,108 @@ describe('Company administration (real MongoDB)', () => {
       200,
     );
     expect(JSON.stringify(next.body)).not.toContain('request-admin-failure');
+  });
+  it('serves a paginated request timeline with long prompts, image order and safe upstream errors from API and worker journals', async () => {
+    const day = new Date().toISOString().slice(0, 10);
+    const requestId = randomUUID();
+    const prompt =
+      'Keep the reference scene. '.repeat(80) + ' FINAL REQUIREMENT';
+    const events = [
+      {
+        event: 'ai_request',
+        requestId,
+        provider: 'shopaikey',
+        model: 'image-model',
+        transport: 'google-genai',
+        parts: [
+          {
+            index: 0,
+            type: 'image',
+            mimeType: 'image/png',
+            bytes: 234,
+            sha256: 'target-hash',
+            file: '/PRIVATE_FILE',
+            base64: 'PRIVATE_IMAGE',
+          },
+          {
+            index: 1,
+            type: 'image',
+            mimeType: 'image/png',
+            bytes: 123,
+            sha256: 'source-hash',
+          },
+          { index: 2, type: 'text', text: prompt },
+        ],
+        headers: { Authorization: 'PRIVATE_TOKEN' },
+        credential: 'PRIVATE_CREDENTIAL',
+      },
+      {
+        event: 'background_job_failed',
+        requestId,
+        error: {
+          code: 'AI_QUOTA_EXCEEDED',
+          upstreamStatus: 429,
+          message:
+            'Bearer sensitive-token https://private.example/path?token=sensitive-url',
+          suggestion: 'Check quota',
+          stack: 'PRIVATE_STACK',
+        },
+      },
+    ];
+    for (const base of [directory, path.join(directory, 'worker')]) {
+      await fs.mkdir(path.join(base, day), { recursive: true });
+      await fs.appendFile(
+        path.join(base, day, 'events.jsonl'),
+        events.map((event) => JSON.stringify(event)).join('\n') + '\n',
+      );
+    }
+    for (const source of ['api', 'worker']) {
+      const url = `/diagnostics/${requestId}?day=${day}&source=${source}`;
+      const first = await get(url + '&limit=1').expect(200);
+      expect(first.headers['cache-control']).toBe('no-store');
+      expect(first.body as unknown).toMatchObject({
+        source,
+        requestId,
+        items: [
+          {
+            event: 'ai_request',
+            transport: 'google-genai',
+            parts: [
+              { index: 0, sha256: 'target-hash' },
+              { index: 1, sha256: 'source-hash' },
+              { index: 2, text: prompt },
+            ],
+          },
+        ],
+      });
+      const cursor = (first.body as { nextCursor: number }).nextCursor;
+      const next = await get(url + `&cursor=${cursor}`).expect(200);
+      expect(next.body as unknown).toMatchObject({
+        items: [
+          {
+            event: 'background_job_failed',
+            error: {
+              upstreamStatus: 429,
+              message: 'Bearer [redacted] [URL]',
+              suggestion: 'Check quota',
+            },
+          },
+        ],
+      });
+      expect(JSON.stringify([first.body, next.body])).not.toMatch(
+        /PRIVATE|sensitive-token|sensitive-url/,
+      );
+    }
+    await get(`/diagnostics/${requestId}?day=2026-02-31`).expect(400);
+    await get(`/diagnostics/${requestId}?day=${day}&source=../../`).expect(400);
+    await get(`/diagnostics/not-a-uuid?day=${day}`).expect(400);
+    await get(`/diagnostics/${requestId}?day=${day}&cursor=-1`).expect(400);
+    const missing = await get(
+      `/diagnostics/${randomUUID()}?day=2000-01-01`,
+    ).expect(200);
+    expect(missing.body as unknown).toMatchObject({
+      items: [],
+      nextCursor: null,
+    });
   });
 });

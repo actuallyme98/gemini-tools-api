@@ -286,7 +286,32 @@ export class AdminService {
   }
   async diagnostics(query: DiagnosticQuery) {
     await this.audit.flush();
-    return readAdminDiagnostics(this.audit.directory, query);
+    return readAdminDiagnostics(this.diagnosticDirectory(query.source), query);
+  }
+  private diagnosticDirectory(source: DiagnosticQuery['source']) {
+    if (source !== 'worker') return this.audit.directory;
+    const directory = this.config.get<string>('AUDIT_WORKER_LOG_DIR');
+    if (!directory)
+      throw new ApiError(
+        503,
+        'ADMIN_WORKER_LOG_UNAVAILABLE',
+        'Chưa kết nối nhật ký worker.',
+      );
+    return directory;
+  }
+  async requestDiagnostics(requestId: string, query: DiagnosticQuery) {
+    await this.audit.flush();
+    const result = await readAdminDiagnostics(
+      this.diagnosticDirectory(query.source),
+      query,
+      requestId,
+    );
+    return {
+      requestId,
+      day: query.day,
+      source: query.source ?? 'api',
+      ...result,
+    };
   }
   async settings(actor: AgentUser) {
     return {

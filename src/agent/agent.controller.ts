@@ -409,6 +409,19 @@ export class AgentController {
       parse<string>(idSchema.required(), id),
       req.agentUser.id,
     );
+    if (asset.runId && review !== 'draft') {
+      const run = await this.store.get<Run>('run', asset.runId, asset.owner);
+      if (
+        run.reviewerId &&
+        run.reviewerId !== req.agentUser.id &&
+        req.agentUser.role !== 'admin'
+      )
+        throw new ApiError(
+          403,
+          'JOB_REVIEWER_REQUIRED',
+          'Công việc đã chỉ định người duyệt khác.',
+        );
+    }
     const updated = await this.store.patch<Asset>(
       'asset',
       asset.id,

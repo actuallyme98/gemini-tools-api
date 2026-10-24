@@ -349,6 +349,7 @@ export class BudgetService {
     id: string,
     requestId: string,
     spec: Pick<UsageEntry, 'provider' | 'model' | 'operation'>,
+    scope?: string,
   ) {
     const user = await this.store.find<AgentUser>('user', owner);
     if (!user || user.disabled)
@@ -418,6 +419,7 @@ export class BudgetService {
         period.entries[id] = {
           currency,
           ...spec,
+          ...(scope ? { scope } : {}),
           id,
           requestId,
           reservedMicro: held,
@@ -506,6 +508,7 @@ export class BudgetService {
       id,
       context.requestId,
       spec,
+      context.billingScope,
     );
     let result: T;
     try {

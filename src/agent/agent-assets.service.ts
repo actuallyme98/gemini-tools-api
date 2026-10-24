@@ -39,6 +39,7 @@ export class AgentAssetsService {
     buffer: Buffer,
     fields: Pick<Asset, 'name' | 'kind' | 'category'> &
       Partial<Pick<Asset, 'parentId' | 'runId' | 'stepId' | 'checks'>>,
+    generatedOutput = false,
   ) {
     if (buffer.length > 32 * 1024 * 1024 || !imageMimeType(buffer))
       throw new ApiError(
@@ -49,7 +50,8 @@ export class AgentAssetsService {
     let info: sharp.Metadata;
     try {
       const decoder = sharp(buffer, {
-        limitInputPixels: fields.runId ? 32_000_000 : 12_000_000,
+        limitInputPixels:
+          fields.runId || generatedOutput ? 32_000_000 : 12_000_000,
         failOn: 'warning',
       });
       info = await decoder.metadata();
@@ -60,7 +62,7 @@ export class AgentAssetsService {
       throw new ApiError(
         400,
         'AGENT_IMAGE_INVALID',
-        fields.runId
+        fields.runId || generatedOutput
           ? 'Ảnh kết quả không đọc được hoặc vượt giới hạn 32 megapixel.'
           : 'Ảnh không đọc được hoặc vượt giới hạn 12 megapixel.',
       );

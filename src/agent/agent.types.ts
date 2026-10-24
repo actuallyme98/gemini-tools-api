@@ -50,6 +50,9 @@ export interface Asset extends Entity {
     technical: boolean;
     visual: 'not_checked' | 'pass' | 'review';
     notes: string[];
+    criteria?: import('./quality').QualityReport['criteria'];
+    expectedCount?: number;
+    actualCount?: number | null;
   };
   storageKey: string;
   iv: string;
@@ -138,6 +141,8 @@ export type RunState =
   | 'failed'
   | 'cancelled';
 export interface PlanItem {
+  rowPrompt?: string;
+  sku?: string;
   title: string;
   prompt: string;
   sourceId?: string;
@@ -151,6 +156,15 @@ export type PlanQuestion = {
   input?: 'source' | 'reference' | 'template' | 'single_source';
 };
 export interface Run extends Entity {
+  knowledgeSources?: {
+    id: string;
+    title: string;
+    revision: number;
+    excerpt: string;
+  }[];
+  projectId?: string;
+  assigneeId?: string;
+  reviewerId?: string;
   pendingInputs?: {
     sourceIds: string[];
     targetIds: string[];

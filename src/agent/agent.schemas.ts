@@ -10,6 +10,8 @@ export const userSchema = loginSchema.keys({
   role: Joi.string().valid('admin', 'designer').default('designer'),
 });
 export const messageSchema = Joi.object({
+  parentRunId: idSchema,
+  projectId: idSchema,
   approvalMode: Joi.string().valid('manual', 'auto').default('manual'),
   id: idSchema.required(),
   text: Joi.string().trim().min(3).max(12000).required(),

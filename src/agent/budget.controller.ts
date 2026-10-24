@@ -18,6 +18,7 @@ import {
 } from './agent-auth.service';
 import { AgentDatabaseFilter } from './agent-database.filter';
 import { BudgetService } from './budget.service';
+import { PricingCatalogService } from './pricing-catalog.service';
 import { idSchema, parse } from './agent.schemas';
 import type { PriceRule } from './budget.types';
 const amount = Joi.number()
@@ -64,7 +65,16 @@ export class UsageController {
 @UseGuards(AgentGuard, AgentAdminGuard)
 @UseFilters(AgentDatabaseFilter)
 export class BudgetAdminController {
-  constructor(private readonly budget: BudgetService) {}
+  constructor(
+    private readonly budget: BudgetService,
+    private readonly pricing: PricingCatalogService,
+  ) {}
+  @Get('pricing-catalog') @Header('Cache-Control', 'no-store') catalog() {
+    return this.pricing.catalog();
+  }
+  @Get('pricing-readiness') @Header('Cache-Control', 'no-store') readiness() {
+    return this.pricing.readiness();
+  }
   @Get('budget-policy') @Header('Cache-Control', 'no-store') policy() {
     return this.budget.policy();
   }

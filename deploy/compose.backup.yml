@@ -1,0 +1,13 @@
+services:
+  backup:
+    profiles: [maintenance]
+    image: ${API_IMAGE:?Deploy an API image containing the backup CLI first}
+    env_file: ${DEPLOY_PATH:?Set DEPLOY_PATH}/.env
+    environment:
+      AGENT_BACKUP_DIR: /backups
+    entrypoint: [node, scripts/agent-backup.cjs]
+    command: [verify, latest.enc]
+    volumes:
+      - ${DEPLOY_PATH}/backups:/backups
+    mem_limit: 512m
+    cpus: 0.5

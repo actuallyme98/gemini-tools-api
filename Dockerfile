@@ -18,6 +18,7 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package*.json ./
 COPY --chown=node:node scripts/read-audit-logs.cjs ./scripts/read-audit-logs.cjs
 COPY --chown=node:node scripts/agent-user.cjs ./scripts/agent-user.cjs
+COPY --chown=node:node scripts/agent-backup.cjs ./scripts/agent-backup.cjs
 RUN mkdir -p /app/logs /app/worker-logs && chown node:node /app/logs /app/worker-logs && chmod 700 /app/logs /app/worker-logs
 USER node
 EXPOSE 5177

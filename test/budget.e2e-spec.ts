@@ -9,6 +9,7 @@ import path from 'node:path';
 import request from 'supertest';
 import { AgentStore } from '../src/agent/agent.store';
 import { BudgetService } from '../src/agent/budget.service';
+import { PricingCatalogService } from '../src/agent/pricing-catalog.service';
 import {
   BudgetAdminController,
   UsageController,
@@ -64,6 +65,7 @@ describe('Weekly employee budgets (real standalone MongoDB)', () => {
       providers: [
         AgentStore,
         BudgetService,
+        PricingCatalogService,
         AuditLogService,
         AgentAuthService,
         AgentGuard,
@@ -129,6 +131,17 @@ describe('Weekly employee budgets (real standalone MongoDB)', () => {
   });
 
   it('starts weeks on Monday at midnight UTC+7 and does integer USD calculations', () => {
+    expect(
+      usageCost(
+        { inputTokens: 10, outputTokens: 20 },
+        {
+          ...spec,
+          reserveUsd: 1,
+          inputUsdPerMillion: 0.3,
+          source: 'incomplete',
+        },
+      ),
+    ).toBeUndefined();
     expect(budgetWeek(new Date('2026-10-25T16:59:59Z')).key).toBe('2026-10-19');
     expect(budgetWeek(new Date('2026-10-25T17:00:00Z'))).toEqual({
       key: '2026-10-26',

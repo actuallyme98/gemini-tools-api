@@ -257,7 +257,9 @@ export class AgentWorker
                 'AI_PERMISSION_DENIED',
                 'AGENT_ACCOUNT_DISABLED',
               ].includes(code) ||
-              code.startsWith('STORAGE_')
+              code.startsWith('STORAGE_') ||
+              code.startsWith('BUDGET_') ||
+              code === 'USER_BUDGET_EXCEEDED'
             )
               await this.agent.cancel(run.owner, run.id);
           }

@@ -25,6 +25,7 @@ export type CallUsage = {
 };
 export type UsageEntry = {
   currency?: 'USD' | 'CREDIT';
+  scope?: string;
   id: string;
   requestId: string;
   provider: string;

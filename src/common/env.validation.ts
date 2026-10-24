@@ -5,6 +5,10 @@ export const envValidationSchema = Joi.object({
     .valid('development', 'production', 'test')
     .default('development'),
   AGENT_ENABLED: Joi.boolean().default(false),
+  AGENT_BACKUP_KEY: Joi.string()
+    .pattern(/^[a-fA-F0-9]{64}$/)
+    .empty(''),
+  AGENT_BACKUP_DIR: Joi.string().max(2048).default('backups'),
   QUEUE_ENABLED: Joi.boolean().default(true),
   QUEUE_WORKER_ENABLED: Joi.boolean().default(true),
   QUEUE_PREFIX: Joi.string()

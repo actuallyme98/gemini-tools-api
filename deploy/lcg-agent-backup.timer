@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily LCG Agent backup at 03:00 UTC+7
+
+[Timer]
+OnCalendar=*-*-* 20:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

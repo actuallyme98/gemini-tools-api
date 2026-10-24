@@ -3,6 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuditModule } from '../audit/audit.module';
 import { AgentStore } from './agent.store';
 import { BudgetService } from './budget.service';
+import { PricingCatalogService } from './pricing-catalog.service';
 import { UsageController, BudgetAdminController } from './budget.controller';
 import {
   AgentAuthService,
@@ -20,6 +21,7 @@ import {
     AgentGuard,
     AgentAdminGuard,
     BudgetService,
+    PricingCatalogService,
   ],
   exports: [
     AgentStore,

@@ -11,7 +11,7 @@ import {
   ObjectId,
   type Document,
 } from 'mongodb';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import * as os from 'node:os';
 import { ApiError } from '../common/api-error';
 import type {
@@ -23,6 +23,7 @@ import type {
   Run,
 } from './agent.types';
 import { decodeCursor, encodeCursor } from './agent-pagination';
+import type { Knowledge } from './workspace.types';
 
 interface StoredRecord extends Document {
   kind: string;
@@ -80,6 +81,17 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
       { key: { kind: 1, owner: 1, 'data.createdAt': -1, id: -1 } },
       { key: { kind: 1, owner: 1, 'data.runId': 1 } },
       { key: { kind: 1, 'data.runId': 1 } },
+      { key: { kind: 1, 'data.memberIds': 1, updatedAt: -1 } },
+      { key: { kind: 1, 'data.projectId': 1, updatedAt: -1 } },
+      {
+        key: {
+          'data.title': 'text',
+          'data.content': 'text',
+          'data.tags': 'text',
+        },
+        name: 'company_knowledge_search',
+        default_language: 'none',
+      },
       { key: { kind: 1, 'data.state': 1, updatedAt: 1 } },
       {
         key: { 'data.email': 1 },
@@ -145,6 +157,9 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
             owner: value.owner,
             data: value,
             updatedAt: new Date(),
+            ...(kind === 'notification'
+              ? { expiresAt: new Date(Date.now() + 90 * 86400000) }
+              : {}),
           },
         },
         { upsert: true },
@@ -191,6 +206,55 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
       },
       { returnDocument: 'after' },
     );
+    if (
+      record &&
+      kind === 'run' &&
+      [
+        'needs_input',
+        'draft',
+        'review',
+        'completed',
+        'partial_failed',
+        'failed',
+        'cancelled',
+      ].includes(String(fields['state']))
+    ) {
+      try {
+        const run = record.data as Run;
+        const eventKey = `${run.id}:${run.state}:${run.updatedAt}`;
+        const recipients = new Set([run.owner]);
+        if (run.projectId) {
+          const project = await this.find<import('./workspace.types').Project>(
+            'project',
+            run.projectId,
+          );
+          for (const member of [run.assigneeId, run.reviewerId])
+            if (member && project?.memberIds.includes(member))
+              recipients.add(member);
+        }
+        for (const recipient of recipients) {
+          const hash = createHash('sha256')
+            .update(eventKey + ':' + recipient)
+            .digest('hex');
+          const notification = this.create<
+            import('./operations.controller').AgentNotification
+          >(recipient, {
+            runId: run.id,
+            conversationId: run.conversationId,
+            state: run.state,
+            title: run.brief.slice(0, 160),
+            read: false,
+            eventKey,
+          });
+          notification.id = `${hash.slice(0, 8)}-${hash.slice(8, 12)}-4${hash.slice(13, 16)}-a${hash.slice(17, 20)}-${hash.slice(20, 32)}`;
+          await this.ensure('notification', notification).catch(
+            () => undefined,
+          );
+        }
+      } catch {
+        /* Notification failure must not turn an already saved AI result into a paid retry. */
+      }
+    }
     return record?.data as T | undefined;
   }
   async find<T>(kind: string, id: string): Promise<T | undefined> {
@@ -243,6 +307,79 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
   }
   async remove(kind: string, id: string) {
     await this.database().deleteOne({ kind, id });
+  }
+  async workspaceRuns(
+    owner: string,
+    projectIds: string[],
+    page: number,
+    state?: string,
+    projectId?: string,
+  ) {
+    const filter = {
+      kind: 'run',
+      $or: [{ owner }, { 'data.projectId': { $in: projectIds } }],
+      ...(state ? { 'data.state': state } : {}),
+      ...(projectId ? { 'data.projectId': projectId } : {}),
+    };
+    const [rows, total] = await Promise.all([
+      this.database()
+        .find(filter)
+        .sort({ updatedAt: -1, id: -1 })
+        .skip((page - 1) * 30)
+        .limit(30)
+        .toArray(),
+      this.database().countDocuments(filter),
+    ]);
+    return {
+      items: rows.map((r) => r.data as Run),
+      total,
+      page,
+      hasMore: page * 30 < total,
+    };
+  }
+  async knowledgeSearch(owner: string, projectIds: string[], search: string) {
+    return (
+      await this.database()
+        .find(
+          {
+            kind: 'knowledge',
+            'data.archived': false,
+            $text: { $search: search },
+            $or: [
+              { owner },
+              { 'data.visibility': 'company' },
+              {
+                'data.visibility': 'project',
+                'data.projectId': { $in: projectIds },
+              },
+            ],
+          },
+          { projection: { data: 1, score: { $meta: 'textScore' } } },
+        )
+        .sort({ score: { $meta: 'textScore' } })
+        .limit(8)
+        .toArray()
+    ).map((r) => r.data as Knowledge);
+  }
+  async visibleKnowledge(owner: string, projectIds: string[]) {
+    return (
+      await this.database()
+        .find({
+          kind: 'knowledge',
+          'data.archived': false,
+          $or: [
+            { owner },
+            { 'data.visibility': 'company' },
+            {
+              'data.visibility': 'project',
+              'data.projectId': { $in: projectIds },
+            },
+          ],
+        })
+        .sort({ updatedAt: -1 })
+        .limit(200)
+        .toArray()
+    ).map((r) => r.data as Knowledge);
   }
   async revokeUserSessions(owner: string) {
     return (await this.database().deleteMany({ kind: 'session', owner }))

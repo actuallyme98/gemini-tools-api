@@ -1,0 +1,46 @@
+name: Production availability and backup monitor
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-monitor
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check public app and API
+        run: |
+          curl --fail --silent --show-error --max-time 15 --retry 3 --retry-delay 10 --retry-all-errors https://tools.lcgmedia.uk/healthz >/dev/null
+          curl --fail --silent --show-error --max-time 15 --retry 3 --retry-delay 10 --retry-all-errors https://api.lcgmedia.uk/api/health | jq -e '.status == "ok"'
+  backups:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Configure read-only monitoring session
+        env:
+          SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_KEY" && test -n "$KNOWN_HOSTS"
+          install -m 700 -d "$HOME/.ssh"
+          printf '%s\n' "$SSH_KEY" > "$HOME/.ssh/lcg-monitor"
+          printf '%s\n' "$KNOWN_HOSTS" > "$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/lcg-monitor" "$HOME/.ssh/known_hosts"
+      - name: Check timer, last backup and verified replica
+        env:
+          SERVER_IP: ${{ vars.DEPLOY_HOST }}
+          SERVER_USER: ${{ vars.DEPLOY_USER || 'ubuntu' }}
+          DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/home/ubuntu/gemini-tools' }}
+        run: |
+          [[ "$SERVER_IP" =~ ^[A-Za-z0-9.-]+$ && "$SERVER_USER" =~ ^[A-Za-z0-9_-]+$ ]]
+          [[ "$DEPLOY_PATH" =~ ^/[A-Za-z0-9_/-]+/gemini-tools$ && "$DEPLOY_PATH" != *..* ]]
+          ssh -i "$HOME/.ssh/lcg-monitor" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 "$SERVER_USER@$SERVER_IP" "bash -s -- '$DEPLOY_PATH'" < scripts/check-agent-backups.sh

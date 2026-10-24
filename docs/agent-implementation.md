@@ -48,7 +48,7 @@ Release theo yêu cầu deploy ngày 24/10/2026. Giữ nguyên dữ liệu produ
 - Danh sách dự án/kiến thức hiện giới hạn 200; nghiên cứu/batch/thông báo 100 bản gần nhất; kết quả đánh giá 500. Trang công việc phân trang 30. Cần mở rộng phân trang các danh mục khi công ty vượt các mức này.
 - Nguồn nghiên cứu chỉ HTTPS công khai có IPv4, tối đa 1 MB/trang, timeout và kiểm tra DNS/redirect. Trang chặn bot không được coi là đã đọc. Chưa tích hợp nhà cung cấp thống kê keyword có phí.
 - Batch gửi từng lô để duyệt, không tự bỏ qua bước duyệt prompt. Lô lỗi vẫn được giữ để kiểm tra; chạy lại ảnh là hành động có phí riêng. CSV không chấp nhận ảnh thuộc tài khoản khác hoặc link tải tùy ý.
-- Giám sát trong ứng dụng và timer systemd là mức vận hành một server; chưa có cảnh báo email/Slack, cluster HA hay giám sát host từ bên ngoài. Thông báo giữ 90 ngày.
+- Giám sát trong ứng dụng và timer systemd là mức vận hành một server. Có workflow GitHub chạy ngoài server mỗi 15 phút để kiểm tra app/API và backup; thông báo lỗi qua trạng thái Actions/Notifications của GitHub. Chưa có email/Slack riêng hoặc cluster HA. Thông báo trong app giữ 90 ngày.
 - Backup có khoảng bảo trì, khóa backup và khóa ảnh lưu tách biệt với archive. Chỉ xóa bản server quá 14 ngày đã có replica xác minh; chưa tự phục hồi lên production, sao lưu Redis/logs ổ đĩa hoặc các ảnh public của công cụ cũ ngoài namespace Agent.
 
 ## Xác minh

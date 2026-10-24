@@ -62,6 +62,35 @@ test(
       assert.equal(success.status, 0, success.stderr);
       await assert.rejects(fs.access(old));
       await fs.access(unreplicated);
+      await fs.writeFile(
+        path.join(bin, 'systemctl'),
+        '#!/bin/bash\nif [[ "$*" == *ActiveState* ]]; then echo inactive; elif [[ "$*" == *Result* ]]; then echo success; fi\n',
+        { mode: 0o700 },
+      );
+      const latest = path.join(archives, 'lcg-20261024T120000Z.enc');
+      await fs.writeFile(latest, 'latest backup');
+      await fs.writeFile(
+        latest + '.replicated',
+        `${createHash('sha256').update('latest backup').digest('hex')}  ${path.basename(latest)}\n`,
+      );
+      const monitor = () =>
+        spawnSync(
+          'bash',
+          [path.resolve('scripts/check-agent-backups.sh'), root],
+          {
+            env: { ...process.env, PATH: bin + ':' + process.env.PATH },
+            encoding: 'utf8',
+          },
+        );
+      assert.equal(monitor().status, 0);
+      await fs.unlink(latest + '.replicated');
+      assert.notEqual(monitor().status, 0);
+      await fs.writeFile(
+        latest + '.replicated',
+        `${createHash('sha256').update('latest backup').digest('hex')}  ${path.basename(latest)}\n`,
+      );
+      await fs.utimes(latest, ago, ago);
+      assert.notEqual(monitor().status, 0);
     } finally {
       await fs.rm(temporary, { recursive: true, force: true });
     }

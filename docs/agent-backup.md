@@ -24,6 +24,8 @@ Theo yêu cầu dùng chung bucket, replica dùng credential R2 hiện có nhưn
 
 Sau khi API/worker khởi động lại thành công, CLI upload rồi tải lại toàn bộ object và so sánh SHA-256 trước khi ghi marker `.replicated`. Lỗi upload/checksum giữ nguyên bản server và làm service báo lỗi. Thiếu một phần cấu hình bị từ chối trước bảo trì; bỏ trống cả bốn biến thì giữ chế độ backup tại server. Giới hạn mỗi archive 5 GB; vượt mức phải bổ sung multipart. Chưa tự cấu hình lifecycle bucket, tránh ảnh hưởng dữ liệu EziHubb.
 
+Workflow `Production availability and backup monitor` chạy mỗi 15 phút từ GitHub: kiểm tra app/API public, timer, kết quả service, backup không quá 36 giờ và marker checksum. Có thể chạy thủ công bằng `gh workflow run production-monitor.yml`. Workflow lỗi xuất hiện trong GitHub Actions; email/push phụ thuộc thiết lập Notifications của tài khoản GitHub. Chưa có kênh email/Slack riêng hoặc cam kết thời gian chạy cron GitHub.
+
 `bash scripts/agent-backup-copy.sh /duong/dan/private lcg-YYYYMMDDTHHMMSSZ.enc` tải thêm bản mã hóa về máy quản trị và kiểm tra checksum. Không đặt khóa giải mã cùng thư mục archive. Bản kiểm tra đầu tiên nằm ở `D:/LCGMedia-Backups/agent/`; khóa phục hồi nằm ngoài Git trong thư mục credentials của Codex, đã hạn chế quyền đọc file. Bản sao máy local không thay thế replica R2 theo lịch.
 
 ## Kiểm tra phục hồi

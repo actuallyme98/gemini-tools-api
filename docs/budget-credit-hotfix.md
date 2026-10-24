@@ -11,3 +11,5 @@ Apply only the prices for the API key's assigned groups. Public ShopAIKey `/pric
 VyceAI text models without verified health/text pricing are skipped before any paid health probe. The existing ShopAIKey text fallback then applies. Budget exhaustion and unresolved billing still stop execution.
 
 The client displays credits throughout employee budgets and admin price forms. Regression coverage includes credit settlement, cash-cost isolation, initial currency selection, missing pricing, exhausted limits and unpriced text fallback. Deploy API and client before selecting credit accounting. Failed user jobs are not replayed automatically.
+
+The release also patches `body-parser` to 2.4.0 and `multer` to 2.5.0 for the October 22 denial-of-service advisories. Nest currently pins the older multer, so its dependency is overridden to the same patched version as the direct dependency. Swagger's pinned `js-yaml` is overridden to 5.4.1 for GHSA-r3ph-w7gj-g6xm. Revisit these overrides when Nest updates its pins; production dependency audit must remain clean.

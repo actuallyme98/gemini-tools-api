@@ -39,7 +39,7 @@
     "ioredis": "^5.9.2",
     "joi": "^18.0.2",
     "mongodb": "^7.7.0",
-    "multer": "^2.0.2",
+    "multer": "^2.5.0",
     "openai": "^6.16.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
@@ -91,6 +91,14 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node"
+  },
+  "overrides": {
+    "@nestjs/platform-express": {
+      "multer": "$multer"
+    },
+    "@nestjs/swagger": {
+      "js-yaml": "5.4.1"
+    }
   },
   "pnpm": {
     "onlyBuiltDependencies": [

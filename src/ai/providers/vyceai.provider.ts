@@ -142,6 +142,21 @@ export class VyceAIProvider implements AIProvider {
   async generateJSON(prompt: string): Promise<unknown> {
     const models = await this.getPreferredModels();
     for (const model of models) {
+      // Missing pricing is checked before a paid probe; real budget failures still stop failover.
+      if (
+        this.budget &&
+        (!(await this.budget.hasPrice({
+          provider: this.id,
+          model,
+          operation: 'health',
+        })) ||
+          !(await this.budget.hasPrice({
+            provider: this.id,
+            model,
+            operation: 'text',
+          })))
+      )
+        continue;
       // Never reuse a previous request's health result.
       if (await this.isHealthy(model))
         return this.generateWithModel(prompt, model);

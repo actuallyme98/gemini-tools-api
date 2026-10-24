@@ -1,12 +1,13 @@
+export const isSecretEnvironmentVariable = (name: string) =>
+  /(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(
+    name.replace(/^SHOPAIKEY_/i, ''),
+  );
+
 /** Redact credentials from dependency messages and logs before truncating them. */
 export function sanitizeErrorMessage(value: string, maxLength = 800): string {
   let text = value;
   for (const [name, secret] of Object.entries(process.env)) {
-    if (
-      /(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name) &&
-      secret &&
-      secret.length >= 8
-    )
+    if (isSecretEnvironmentVariable(name) && secret && secret.length >= 8)
       text = text.split(secret).join('[redacted]');
   }
   return text

@@ -2,6 +2,9 @@ import { ConfigService } from '@nestjs/config';
 import { Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { VyceAIProvider } from './vyceai.provider';
+import { BudgetService } from '../../agent/budget.service';
+import { TextRouterService } from '../text-router.service';
+import { ShopAIKeyProvider } from './shopaikey.provider';
 
 jest.mock('openai', () => ({ __esModule: true, default: jest.fn() }));
 const answer = (content: string, finish_reason = 'stop') => ({
@@ -83,5 +86,45 @@ describe('Internal VyceAI text routing', () => {
       'unavailable',
     );
     expect(create).not.toHaveBeenCalled();
+  });
+  it('skips models without both health/text prices before making any paid probe', async () => {
+    const budget = {
+      hasPrice: jest.fn(({ model }: { model: string }) =>
+        Promise.resolve(model === 'claude-sonnet-4-6'),
+      ),
+      call: jest.fn((_spec: unknown, task: () => unknown) => task()),
+    };
+    const vyceai = new VyceAIProvider(
+      new ConfigService({ VYCEAI_API_KEY: 'test-key' }),
+      budget as unknown as BudgetService,
+    );
+    create
+      .mockResolvedValueOnce(answer('OK'))
+      .mockResolvedValueOnce(answer('["priced model"]'));
+    expect(await vyceai.generateJSON('prompt')).toEqual(['priced model']);
+    expect(
+      create.mock.calls.map((call) => (call as [{ model: string }])[0].model),
+    ).toEqual(['claude-sonnet-4-6', 'claude-sonnet-4-6']);
+  });
+  it('falls back to ShopAIKey without sending a health call when all Vyce prices are missing', async () => {
+    const budget = {
+      hasPrice: jest.fn(() => Promise.resolve(false)),
+      call: jest.fn(),
+    };
+    const vyceai = new VyceAIProvider(
+      new ConfigService({ VYCEAI_API_KEY: 'test-key' }),
+      budget as unknown as BudgetService,
+    );
+    const fallback = {
+      generateJSON: jest.fn(() => Promise.resolve(['fallback'])),
+    };
+    const router = new TextRouterService(
+      vyceai,
+      fallback as unknown as ShopAIKeyProvider,
+    );
+    expect(await router.generateJSON('prompt')).toEqual(['fallback']);
+    expect(create).not.toHaveBeenCalled();
+    expect(budget.call).not.toHaveBeenCalled();
+    expect(fallback.generateJSON).toHaveBeenCalledTimes(1);
   });
 });

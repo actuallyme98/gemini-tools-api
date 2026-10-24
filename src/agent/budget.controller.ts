@@ -40,11 +40,13 @@ const rule = Joi.object({
   outputUsdPerMillion: priceAmount,
   imageUsd: priceAmount,
   source: Joi.string().trim().min(3).max(500).required(),
-}).custom((value: PriceRule, helpers) =>
-  value.operation !== 'image' && value.imageUsd !== undefined
-    ? helpers.error('any.invalid')
-    : value,
-);
+})
+  .and('inputUsdPerMillion', 'outputUsdPerMillion')
+  .custom((value: PriceRule, helpers) =>
+    value.operation !== 'image' && value.imageUsd !== undefined
+      ? helpers.error('any.invalid')
+      : value,
+  );
 
 @Controller('agent/usage')
 @UseGuards(AgentGuard)
@@ -73,12 +75,14 @@ export class BudgetAdminController {
     return this.budget.changePolicy(
       req.agentUser,
       parse<{
+        currency?: 'USD' | 'CREDIT';
         defaultWeeklyUsd: number;
         prices: PriceRule[];
         updatedAt: string;
         reason: string;
       }>(
         Joi.object({
+          currency: Joi.string().valid('USD', 'CREDIT'),
           defaultWeeklyUsd: amount.required(),
           prices: Joi.array()
             .items(rule)

@@ -30,9 +30,15 @@ export function budgetWeek(now = new Date()) {
 export function usageCost(
   usage: CallUsage,
   price: PriceRule,
+  currency: 'USD' | 'CREDIT' = 'USD',
 ): { micro: number; basis: 'reported_usd' | 'configured_rates' } | undefined {
-  if (usage.costUsd !== undefined)
+  if (currency === 'USD' && usage.costUsd !== undefined)
     return { micro: usdMicro(usage.costUsd), basis: 'reported_usd' };
+  if (
+    (price.inputUsdPerMillion === undefined) !==
+    (price.outputUsdPerMillion === undefined)
+  )
+    return;
   let micro =
     price.requestUsd === undefined
       ? undefined
@@ -87,14 +93,16 @@ export function responseUsage(
     // Only an explicitly USD-labelled field is accepted as a monetary amount.
     costUsd: number(usage.cost_usd ?? response.cost_usd),
     inputTokens: number(
-      kind === 'genai' ? usage.promptTokenCount : usage.prompt_tokens,
+      kind === 'genai'
+        ? usage.promptTokenCount
+        : (usage.prompt_tokens ?? usage.input_tokens),
     ),
     outputTokens:
       kind === 'genai'
         ? output === undefined
           ? undefined
           : output + (thoughts ?? 0)
-        : number(usage.completion_tokens),
+        : number(usage.completion_tokens ?? usage.output_tokens),
     images,
     responseId:
       typeof responseId === 'string' ? responseId.slice(0, 200) : undefined,

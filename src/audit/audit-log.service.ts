@@ -9,7 +9,10 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
-import { sanitizeErrorMessage } from '../common/error-sanitizer';
+import {
+  sanitizeErrorMessage,
+  isSecretEnvironmentVariable,
+} from '../common/error-sanitizer';
 
 export type AuditContext = {
   requestId: string;
@@ -94,11 +97,7 @@ export class AuditLogService implements OnModuleInit, OnApplicationShutdown {
   private redact(value: string) {
     let result = value;
     for (const [name, secret] of Object.entries(process.env)) {
-      if (
-        /(KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)/i.test(name) &&
-        secret &&
-        secret.length >= 8
-      )
+      if (isSecretEnvironmentVariable(name) && secret && secret.length >= 8)
         result = result.split(secret).join('[redacted]');
     }
     return result

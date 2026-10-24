@@ -12,6 +12,7 @@ export type PriceRule = {
   source: string;
 };
 export interface BudgetPolicy extends Entity {
+  currency?: 'USD' | 'CREDIT';
   defaultWeeklyUsd: number;
   prices: PriceRule[];
 }
@@ -23,6 +24,7 @@ export type CallUsage = {
   responseId?: string;
 };
 export type UsageEntry = {
+  currency?: 'USD' | 'CREDIT';
   id: string;
   requestId: string;
   provider: string;
@@ -50,6 +52,7 @@ export interface BudgetAccount extends Entity {
   periods: Record<string, BudgetPeriod>;
 }
 export type BudgetSummary = {
+  currency: 'USD' | 'CREDIT';
   owner: string;
   periodStart: string;
   periodEnd: string;

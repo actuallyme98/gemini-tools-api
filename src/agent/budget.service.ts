@@ -33,6 +33,16 @@ export class BudgetService {
     });
     return await this.store.find<BudgetPolicy>('budget-policy', 'company');
   }
+  async hasPrice(spec: Pick<UsageEntry, 'provider' | 'model' | 'operation'>) {
+    if (!this.store.enabled) return true;
+    return (await this.policy()).prices.some(
+      (price) =>
+        price.provider === spec.provider &&
+        price.model === spec.model &&
+        price.operation === spec.operation &&
+        price.reserveUsd > 0,
+    );
+  }
   private async account(owner: string) {
     await this.store.ensure<BudgetAccount>('budget-account', {
       ...this.store.create<BudgetAccount>(owner, {
@@ -98,6 +108,7 @@ export class BudgetService {
     const spent = period?.spentMicro ?? 0,
       reserved = period?.reservedMicro ?? 0;
     return {
+      currency: policy.currency ?? 'USD',
       owner,
       periodStart: week.start,
       periodEnd: week.end,
@@ -231,6 +242,7 @@ export class BudgetService {
   async changePolicy(
     actor: AgentUser,
     input: {
+      currency?: 'USD' | 'CREDIT';
       defaultWeeklyUsd: number;
       prices: PriceRule[];
       updatedAt: string;
@@ -239,6 +251,36 @@ export class BudgetService {
   ) {
     usdMicro(input.defaultWeeklyUsd);
     const before = await this.policy();
+    const currency = input.currency ?? before.currency ?? 'USD';
+    if (currency !== (before.currency ?? 'USD')) {
+      if (before.currency !== undefined || before.prices.length)
+        throw new ApiError(
+          409,
+          'BUDGET_CURRENCY_LOCKED',
+          'Chỉ được chọn đơn vị khi thiết lập bảng giá lần đầu, trước khi có usage.',
+        );
+      const accounts = await this.store.query<BudgetAccount>(
+        'budget-account',
+        {},
+        1001,
+      );
+      if (
+        accounts.length > 1000 ||
+        accounts.some((account) =>
+          Object.values(account.periods).some(
+            (period) =>
+              Object.keys(period.entries).length ||
+              period.spentMicro ||
+              period.reservedMicro,
+          ),
+        )
+      )
+        throw new ApiError(
+          409,
+          'BUDGET_CURRENCY_LOCKED',
+          'Không thể đổi đơn vị khi đã có sổ usage. Cần đối soát và chuyển đổi dữ liệu trước.',
+        );
+    }
     return adminAction(
       this.store,
       actor,
@@ -250,13 +292,19 @@ export class BudgetService {
         afterUsd: input.defaultWeeklyUsd,
         beforePrices: before.prices,
         afterPrices: input.prices,
+        beforeCurrency: before.currency ?? 'USD',
+        afterCurrency: currency,
       },
       async () => {
         const updated = await this.store.patch<BudgetPolicy>(
           'budget-policy',
           'company',
           '',
-          { defaultWeeklyUsd: input.defaultWeeklyUsd, prices: input.prices },
+          {
+            defaultWeeklyUsd: input.defaultWeeklyUsd,
+            prices: input.prices,
+            currency,
+          },
           { updatedAt: input.updatedAt },
         );
         if (!updated)
@@ -311,9 +359,11 @@ export class BudgetService {
       );
     const week = budgetWeek();
     let selected!: PriceRule;
+    let currency: 'USD' | 'CREDIT' = 'USD';
     await this.mutate(
       owner,
       (account, policy) => {
+        currency = policy.currency ?? 'USD';
         if (Object.values(account.periods).some((period) => period.entries[id]))
           throw new ApiError(
             409,
@@ -334,7 +384,7 @@ export class BudgetService {
           throw new ApiError(
             403,
             'USER_BUDGET_EXCEEDED',
-            `Đã hết ngân sách AI tuần này. Hạn mức ${limitMicro / 1e6} USD; cấp lại ${week.end}. Liên hệ quản trị viên để tăng hạn mức.`,
+            `Đã hết ngân sách AI tuần này. Hạn mức ${limitMicro / 1e6} ${currency === 'CREDIT' ? 'credit' : 'USD'}; cấp lại ${week.end}. Liên hệ quản trị viên để tăng hạn mức.`,
           );
         selected = policy.prices.find(
           (price) =>
@@ -346,7 +396,8 @@ export class BudgetService {
           throw new ApiError(
             503,
             'BUDGET_PRICING_UNAVAILABLE',
-            'Model chưa có bảng giá và mức giữ chỗ. Nhờ quản trị viên cấu hình trước khi gửi AI.',
+            `Chưa có bảng giá cho model ${spec.model} (${spec.operation}). Nhờ quản trị viên cấu hình trước khi gửi AI.`,
+            { provider: spec.provider, retryable: false },
           );
         const held = usdMicro(selected.reserveUsd);
         if (
@@ -356,7 +407,7 @@ export class BudgetService {
           throw new ApiError(
             403,
             'USER_BUDGET_EXCEEDED',
-            `Ngân sách khả dụng ${Math.max(0, limitMicro - period.spentMicro - period.reservedMicro) / 1e6} USD, cần giữ chỗ ${held / 1e6} USD. Liên hệ quản trị viên để tăng hạn mức.`,
+            `Ngân sách khả dụng ${Math.max(0, limitMicro - period.spentMicro - period.reservedMicro) / 1e6} ${currency === 'CREDIT' ? 'credit' : 'USD'}, cần giữ chỗ ${held / 1e6} ${currency === 'CREDIT' ? 'credit' : 'USD'}. Liên hệ quản trị viên để tăng hạn mức.`,
           );
         if (Object.keys(period.entries).length >= 5000)
           throw new ApiError(
@@ -365,6 +416,7 @@ export class BudgetService {
             'Sổ chi phí tuần đã đạt giới hạn. Liên hệ quản trị viên.',
           );
         period.entries[id] = {
+          currency,
           ...spec,
           id,
           requestId,
@@ -377,7 +429,7 @@ export class BudgetService {
       },
       true,
     );
-    return { key: week.key, price: selected };
+    return { key: week.key, price: selected, currency };
   }
   private async settle(
     owner: string,
@@ -483,7 +535,7 @@ export class BudgetService {
         context.owner,
         reservation.key,
         id,
-        usageCost(report, reservation.price),
+        usageCost(report, reservation.price, reservation.currency),
         report,
       );
     } catch {

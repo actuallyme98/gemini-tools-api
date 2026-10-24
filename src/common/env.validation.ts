@@ -9,6 +9,17 @@ export const envValidationSchema = Joi.object({
     .pattern(/^[a-fA-F0-9]{64}$/)
     .empty(''),
   AGENT_BACKUP_DIR: Joi.string().max(2048).default('backups'),
+  BACKUP_S3_ENDPOINT: Joi.string()
+    .uri({ scheme: ['https'] })
+    .empty(''),
+  BACKUP_S3_BUCKET: Joi.string().max(63).empty(''),
+  BACKUP_S3_ACCESS_KEY_ID: Joi.string().empty(''),
+  BACKUP_S3_SECRET_ACCESS_KEY: Joi.string().empty(''),
+  BACKUP_S3_REGION: Joi.string().max(64).empty(''),
+  BACKUP_S3_PREFIX: Joi.string()
+    .max(128)
+    .pattern(/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/)
+    .empty(''),
   QUEUE_ENABLED: Joi.boolean().default(true),
   QUEUE_WORKER_ENABLED: Joi.boolean().default(true),
   QUEUE_PREFIX: Joi.string()

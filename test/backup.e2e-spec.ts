@@ -5,8 +5,9 @@ import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { Readable } from 'node:stream';
 // The production CLI is exercised directly so the test validates the actual archive format.
-const { backup, restore, verify, backupPath } =
+const { backup, restore, verify, backupPath, replicate, replicaConfiguration } =
   // eslint-disable-next-line @typescript-eslint/no-require-imports -- Exercise the shipped CommonJS CLI without a duplicate implementation.
   require('../scripts/agent-backup.cjs') as {
     backup: (
@@ -22,6 +23,11 @@ const { backup, restore, verify, backupPath } =
     ) => Promise<{ verified: boolean }>;
     verify: (file: string, env: Record<string, string>) => Promise<string>;
     backupPath: (file: string, env: Record<string, string>) => unknown;
+    replicate: (
+      file: string,
+      env: Record<string, string>,
+    ) => Promise<{ replicated: boolean }>;
+    replicaConfiguration: (env: Record<string, string>) => unknown;
   };
 it('restores an authenticated backup into an empty isolated database, revokes sessions and pauses paid tasks', async () => {
   const mongo = await MongoMemoryServer.create(),
@@ -88,6 +94,86 @@ it('restores an authenticated backup into an empty isolated database, revokes se
     await expect(verify('test.enc', env)).resolves.toBe(
       path.join(directory, 'test.enc'),
     );
+    const archiveName = 'lcg-20261024T000000Z.enc';
+    await fs.copyFile(
+      path.join(directory, 'test.enc'),
+      path.join(directory, archiveName),
+    );
+    const replicaEnv = {
+      ...env,
+      BACKUP_S3_ENDPOINT: 'https://backup.example.com',
+      BACKUP_S3_BUCKET: 'private-backups',
+      BACKUP_S3_ACCESS_KEY_ID: 'replica-key',
+      BACKUP_S3_SECRET_ACCESS_KEY: 'replica-secret',
+    };
+    expect(
+      replicaConfiguration({
+        ...replicaEnv,
+        BACKUP_S3_BUCKET: env.R2_BUCKET_NAME,
+      }),
+    ).toMatchObject({ prefix: 'gemini-tools/backups' });
+    expect(() =>
+      replicaConfiguration({ ...replicaEnv, BACKUP_S3_PREFIX: '../escape' }),
+    ).toThrow('namespace');
+    expect(() => replicaConfiguration({ BACKUP_S3_BUCKET: 'partial' })).toThrow(
+      'incomplete',
+    );
+    await expect(replicate(archiveName, env)).resolves.toEqual({
+      replicated: false,
+      reason: 'backup_bucket_not_configured',
+    });
+    let uploaded = Buffer.alloc(0),
+      corruptReplica = false;
+    const sendReplica = (...args: unknown[]) => {
+      const command = args[0] as {
+        input: { Body?: AsyncIterable<Buffer>; Bucket: string; Key: string };
+      };
+      expect(command.input.Bucket).toBe('private-backups');
+      expect(command.input.Key).toBe('gemini-tools/backups/' + archiveName);
+      if (command.input.Body)
+        return (async () => {
+          const chunks: Buffer[] = [];
+          for await (const chunk of command.input.Body) chunks.push(chunk);
+          uploaded = Buffer.concat(chunks);
+          return {};
+        })();
+      const bytes = Buffer.from(uploaded);
+      if (corruptReplica) bytes[0] ^= 1;
+      return Promise.resolve({
+        ContentLength: bytes.length,
+        Body: Readable.from([bytes]),
+      });
+    };
+    const remote = jest
+      .spyOn(S3Client.prototype, 'send')
+      .mockImplementation(sendReplica as never);
+    try {
+      await expect(replicate(archiveName, replicaEnv)).resolves.toMatchObject({
+        replicated: true,
+      });
+      expect(uploaded).toEqual(
+        await fs.readFile(path.join(directory, archiveName)),
+      );
+      expect(
+        await fs.readFile(
+          path.join(directory, archiveName + '.replicated'),
+          'utf8',
+        ),
+      ).toContain(archiveName);
+      await fs.unlink(path.join(directory, archiveName + '.replicated'));
+      corruptReplica = true;
+      await expect(replicate(archiveName, replicaEnv)).rejects.toThrow(
+        'checksum',
+      );
+      await expect(
+        fs.access(path.join(directory, archiveName + '.replicated')),
+      ).rejects.toThrow();
+      await expect(
+        fs.access(path.join(directory, archiveName)),
+      ).resolves.toBeUndefined();
+    } finally {
+      remote.mockRestore();
+    }
     expect(
       (await restore(client, 'test.enc', 'lcg_restore_test', env)).verified,
     ).toBe(true);

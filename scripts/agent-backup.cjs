@@ -1,6 +1,10 @@
 // Encrypted, streaming backup; restore only into a new isolated database.
 const { MongoClient, GridFSBucket, BSON } = require('mongodb');
-const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
+const {
+  S3Client,
+  GetObjectCommand,
+  PutObjectCommand,
+} = require('@aws-sdk/client-s3');
 const {
   createCipheriv,
   createDecipheriv,
@@ -185,6 +189,108 @@ async function verify(file, env = process.env) {
   );
   return target;
 }
+function replicaConfiguration(env) {
+  const names = [
+    'BACKUP_S3_ENDPOINT',
+    'BACKUP_S3_BUCKET',
+    'BACKUP_S3_ACCESS_KEY_ID',
+    'BACKUP_S3_SECRET_ACCESS_KEY',
+  ];
+  if (!names.some((name) => env[name])) return;
+  if (!names.every((name) => env[name]))
+    throw Error('Backup bucket configuration is incomplete.');
+  const endpoint = new URL(env.BACKUP_S3_ENDPOINT);
+  if (
+    endpoint.protocol !== 'https:' ||
+    endpoint.username ||
+    endpoint.password ||
+    endpoint.search ||
+    endpoint.hash ||
+    endpoint.pathname !== '/'
+  )
+    throw Error('Backup endpoint must be a plain HTTPS origin.');
+  if (!/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/.test(env.BACKUP_S3_BUCKET))
+    throw Error('Invalid backup bucket.');
+  const prefix = env.BACKUP_S3_PREFIX || 'gemini-tools/backups';
+  if (!/^[a-zA-Z0-9_-]+(?:\/[a-zA-Z0-9_-]+)*$/.test(prefix))
+    throw Error('Invalid backup namespace.');
+  return {
+    prefix,
+    endpoint: endpoint.origin,
+    region:
+      env.BACKUP_S3_REGION ||
+      (endpoint.hostname.endsWith('.r2.cloudflarestorage.com')
+        ? 'auto'
+        : 'us-east-1'),
+    credentials: {
+      accessKeyId: env.BACKUP_S3_ACCESS_KEY_ID,
+      secretAccessKey: env.BACKUP_S3_SECRET_ACCESS_KEY,
+    },
+  };
+}
+async function replicate(file, env = process.env) {
+  const config = replicaConfiguration(env);
+  if (!config)
+    return { replicated: false, reason: 'backup_bucket_not_configured' };
+  if (!/^lcg-\d{8}T\d{6}Z\.enc$/.test(file))
+    throw Error('Invalid archive filename.');
+  const target = await verify(file, env),
+    size = (await fs.stat(target)).size;
+  if (size > 5_000_000_000)
+    throw Error(
+      'Archive exceeds single-upload limit; configure multipart backups.',
+    );
+  const digest = createHash('sha256');
+  for await (const chunk of createReadStream(target)) digest.update(chunk);
+  const sha256 = digest.digest('hex'),
+    key = config.prefix + '/' + file;
+  const client = new S3Client({
+    endpoint: config.endpoint,
+    region: config.region,
+    credentials: config.credentials,
+    maxAttempts: 2,
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
+  });
+  try {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: env.BACKUP_S3_BUCKET,
+        Key: key,
+        Body: createReadStream(target),
+        ContentLength: size,
+        ContentType: 'application/octet-stream',
+        Metadata: { sha256 },
+      }),
+      { abortSignal: AbortSignal.timeout(300000) },
+    );
+    const response = await client.send(
+      new GetObjectCommand({ Bucket: env.BACKUP_S3_BUCKET, Key: key }),
+      { abortSignal: AbortSignal.timeout(300000) },
+    );
+    if (!response.Body || response.ContentLength !== size)
+      throw Error('Replica size mismatch.');
+    const downloaded = createHash('sha256');
+    let bytes = 0;
+    try {
+      for await (const chunk of response.Body) {
+        bytes += chunk.length;
+        if (bytes > size) throw Error('Replica exceeds expected size.');
+        downloaded.update(chunk);
+      }
+    } finally {
+      response.Body.destroy?.();
+    }
+    if (bytes !== size || downloaded.digest('hex') !== sha256)
+      throw Error('Replica checksum mismatch.');
+    await fs.writeFile(target + '.replicated', `${sha256}  ${file}\n`, {
+      mode: 0o600,
+    });
+    return { replicated: true, key, bytes, sha256 };
+  } finally {
+    client.destroy();
+  }
+}
 async function restore(client, file, targetName, env = process.env) {
   if (!/^[a-zA-Z0-9]+_restore_[a-zA-Z0-9_]+$/.test(targetName))
     throw Error('Restore requires a new <name>_restore_<id> database.');
@@ -315,17 +421,31 @@ async function restore(client, file, targetName, env = process.env) {
     throw error;
   }
 }
-module.exports = { backup, restore, verify, backupPath };
+module.exports = {
+  backup,
+  restore,
+  verify,
+  backupPath,
+  replicate,
+  replicaConfiguration,
+};
 if (require.main === module)
   (async () => {
     const [action, file, target] = process.argv.slice(2);
-    if (!['backup', 'verify', 'restore-test'].includes(action) || !file)
+    if (
+      !['backup', 'verify', 'replicate', 'restore-test'].includes(action) ||
+      !file
+    )
       throw Error(
-        'Usage: node scripts/agent-backup.cjs backup|verify|restore-test filename [isolated_database]',
+        'Usage: node scripts/agent-backup.cjs backup|verify|replicate|restore-test filename [isolated_database]',
       );
     if (action === 'verify') {
       await verify(file);
       console.log('Archive authentication passed.');
+      return;
+    }
+    if (action === 'replicate') {
+      console.log(JSON.stringify(await replicate(file)));
       return;
     }
     if (

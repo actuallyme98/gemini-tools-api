@@ -2,7 +2,7 @@
 
 Cập nhật: 24/10/2026.
 
-Trạng thái: người dùng đã yêu cầu triển khai P0–P2 sau khi hoàn thành báo cáo và báo giá. Tiến độ, phạm vi đã thực hiện và các điều kiện còn chờ được ghi trong [agent-implementation.md](agent-implementation.md). Tài liệu này giữ các đề xuất gốc để đối chiếu; không có nghĩa mọi hạng mục đã được đưa lên production.
+Trạng thái: P0–P2 đã triển khai và deploy ngày 24/10/2026. Luồng mockup thật và chia sẻ đã được kiểm tra; backup và kiểm thử đồng thời được bổ sung tiếp. Bảng module bên dưới là đánh giá gốc trước triển khai, không phải trạng thái hiện tại. Dùng [agent-implementation.md](agent-implementation.md) để xem tiến độ và điều kiện còn chờ.
 
 ## Phạm vi
 
@@ -19,7 +19,7 @@ Trạng thái: người dùng đã yêu cầu triển khai P0–P2 sau khi hoàn
 - Mockup bằng AI, ghép theo template và tạo thiết kế/biến thể.
 - Redis/BullMQ, worker riêng, giới hạn đồng thời và bảo vệ gửi trùng.
 - Lưu ảnh, phiên bản cơ bản, duyệt kết quả và xuất ZIP kèm manifest.
-- Quản trị, audit/request logs và hạn mức AI mặc định 50 USD/tài khoản/tuần.
+- Quản trị, audit/request logs và hạn mức AI mặc định 50 credit/tài khoản/tuần.
 - Workflow/template có phần triển khai; các tab và chức năng tạo mới đang được ẩn.
 
 ## Các module dự kiến
@@ -64,4 +64,4 @@ Tài liệu tham khảo: [Building effective agents — Anthropic](https://www.a
 - Backup tự động, retention và khả năng restore trên server: chưa kiểm tra đầy đủ trong lượt rà soát; không suy ra chỉ từ repository.
 - Trạng thái production trong ghi chú là tại thời điểm kiểm tra, cần kiểm tra lại trước khi triển khai.
 
-Lượt triển khai hiện tại làm local và kiểm thử riêng; chưa commit/push/deploy và chưa thay đổi dữ liệu production.
+Google Auth tạm bỏ qua theo yêu cầu mới. Còn nghiệm thu bộ ảnh và quy trình công ty, giá VyceAI, cảnh báo ngoài hệ thống và tải dài hạn. Fulfillment tiếp tục ngoài phạm vi.

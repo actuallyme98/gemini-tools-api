@@ -6,7 +6,7 @@ Tài liệu bàn giao và báo giá 30 triệu của hệ thống hiện tại n
 ## Tiêu chí nghiệm thu
 
 - [x] P0 — phần mềm: tra cứu bảng giá theo nhóm, kiểm tra cấu hình, giữ nguyên lỗi ngân sách, đối soát có nhật ký; không tự chuyển credit thành USD. Quy tắc token cần đủ giá input/output; bảng giá cũ thiếu một vế sẽ giữ chỗ chờ đối soát.
-- [ ] P0 — kiểm thử provider thực tế: đã xác minh nhóm ShopAIKey cheap/gemini/claude_code, đơn vị credit và áp dụng 19 quy tắc giá với hạn mức 50 credit/tài khoản/tuần. VyceAI chưa có giá xác minh được bỏ qua trước health probe, dùng fallback ShopAIKey. Còn kiểm thử request thật và đối chiếu usage trong đợt release.
+- [x] P0 — luồng thật với model mặc định: đã xác minh nhóm ShopAIKey cheap/gemini/claude_code, đơn vị credit và áp dụng 19 quy tắc giá với hạn mức 50 credit/tài khoản/tuần. Mockup thật tạo ảnh 1024×1024, QA sáu tiêu chí, duyệt và xuất PNG 300 DPI; sổ ghi 0,333543 credit và không còn giữ chỗ. VyceAI chưa có giá xác minh được bỏ qua trước health probe, dùng fallback ShopAIKey. Chưa đối chiếu hóa đơn từng lượt cho mọi model.
 - [x] P1: QA sáu tiêu chí, bằng chứng và độ tin cậy; thiếu mục/không chắc/lệch số sản phẩm đều chuyển duyệt. AI không tự khẳng định độ chính xác pixel/OCR.
 - [x] P1: màn hình ghép vùng in bốn góc, mask, overlay và hòa trộn dùng renderer hiện có; không gọi AI vẽ lại.
 - [x] P1: danh sách công việc theo từng run, phân trang, bộ lọc, tiến độ, ảnh nguồn/đích/kết quả, prompt, lỗi, nhận xét và chi phí từ sổ. Chi phí cũ không có sổ không được coi là miễn phí.
@@ -17,7 +17,10 @@ Tài liệu bàn giao và báo giá 30 triệu của hệ thống hiện tại n
 - [x] P2: preset pixel/DPI, kiểm tra alpha, vùng đệm an toàn, SKU/thư mục/tên ảnh và manifest ZIP; mặc định chỉ xuất ảnh đã duyệt.
 - [x] P2: CSV UTF-8 tối đa 500 dòng/1 MB, ánh xạ cột, preview cặp, chia lô tối đa 20 ảnh và giữ nguyên run ID; tiếp tục không gửi lại lô đã có. Trả lời câu hỏi bổ sung giữ nguyên cặp và prompt theo SKU.
 - [x] P2: thông báo theo trạng thái cho chủ công việc/người phụ trách/người duyệt có quyền; cảnh báo queue/provider/budget/dung lượng; CLI backup mã hóa có kiểm tra restore thực sự trong test.
-- [ ] Vận hành production: cài key backup riêng, thư mục lưu, timer, sao chép ngoài server, retention và chạy thử restore từ archive production. Xem [agent-backup.md](agent-backup.md). Chưa bật timer trên server.
+- [x] Backup production: key riêng, archive mã hóa, lịch 03:00 UTC+7 và bản sao máy local đã có. Đã restore archive production vào DB riêng, kiểm tra 17 index và giải mã năm ảnh; đã gỡ DB thử. Replica R2/S3 và retention có kiểm tra checksum, xem [agent-backup.md](agent-backup.md).
+- [x] Kiểm tra tải có giới hạn: 24 tác vụ trong namespace Redis riêng, bốn nhân viên, hai worker instance, đỉnh ba tác vụ toàn hệ thống/hai mỗi tài khoản. HTTP production hai nhân viên/sáu phiên, 72 request, p95 1.296 ms; truy cập chéo bị chặn, không gọi AI trả phí. Đây chưa phải bài tải dài hạn hoặc nhiều model thật.
+- [ ] Google Auth: tạm bỏ qua theo yêu cầu người dùng; chưa cấu hình Client ID/domain.
+- [ ] Nghiệm thu bộ dữ liệu POD thực tế cho các nhóm sản phẩm/model và quy trình công ty; chưa coi test kỹ thuật là nghiệm thu nội dung.
 
 ## Nguyên tắc
 
@@ -26,7 +29,7 @@ Release theo yêu cầu deploy ngày 24/10/2026. Giữ nguyên dữ liệu produ
 ## Nhật ký
 
 - Hoàn thành báo cáo và báo giá: DOCX + PDF trong MLHM.
-- Đang thực hiện P0: endpoint bảng giá công khai chỉ để đối chiếu; chưa tự áp dụng giá do chưa xác minh nhóm và đơn vị tính của tài khoản.
+- Ngày 24/10: đã deploy API/frontend, kiểm tra luồng thật, áp giá theo credit, bật backup và kiểm thử đồng thời có giới hạn. Endpoint giá công khai chỉ tra cứu, không tự ghi đè chính sách.
 
 ## Cách dùng phần mới
 
@@ -46,12 +49,12 @@ Release theo yêu cầu deploy ngày 24/10/2026. Giữ nguyên dữ liệu produ
 - Nguồn nghiên cứu chỉ HTTPS công khai có IPv4, tối đa 1 MB/trang, timeout và kiểm tra DNS/redirect. Trang chặn bot không được coi là đã đọc. Chưa tích hợp nhà cung cấp thống kê keyword có phí.
 - Batch gửi từng lô để duyệt, không tự bỏ qua bước duyệt prompt. Lô lỗi vẫn được giữ để kiểm tra; chạy lại ảnh là hành động có phí riêng. CSV không chấp nhận ảnh thuộc tài khoản khác hoặc link tải tùy ý.
 - Giám sát trong ứng dụng và timer systemd là mức vận hành một server; chưa có cảnh báo email/Slack, cluster HA hay giám sát host từ bên ngoài. Thông báo giữ 90 ngày.
-- Backup có khoảng bảo trì, cần khóa backup và khóa mã hóa ảnh lưu tách biệt. Chưa tự xóa archive cũ hoặc tự phục hồi lên production; chưa sao lưu Redis, logs ổ đĩa hoặc các ảnh public của công cụ cũ ngoài namespace Agent.
+- Backup có khoảng bảo trì, khóa backup và khóa ảnh lưu tách biệt với archive. Chỉ xóa bản server quá 14 ngày đã có replica xác minh; chưa tự phục hồi lên production, sao lưu Redis/logs ổ đĩa hoặc các ảnh public của công cụ cũ ngoài namespace Agent.
 
 ## Xác minh
 
 Build/lint và test được chạy cho cả hai repo. Kiểm thử API dùng MongoDB tạm riêng; provider/ảnh trong các test trả phí được mock. Các ca trọng tâm gồm chặn truy cập chéo tài khoản, quyền reviewer, kiến thức theo quyền, batch song song không nhân bản/cặp ghép sau câu trả lời, CSV 500 dòng trên 100 KB, kích thước/DPI/alpha và restore archive có ảnh R2. File archive bị sửa bị từ chối trước khi ghi DB; session bị hủy, hàng đợi/tác vụ đang chạy được dừng để đối soát.
 
-Đã đạt 176 test đơn vị API, 170 test tích hợp API và 99 kịch bản frontend (bao gồm các lượt chạy lại sau sửa fixture và hồi quy). Một lượt chạy đồng thời nhiều bộ test làm hook khởi tạo MongoDB trên Windows quá 5 giây; bộ provider-routing được chạy lại riêng với timeout 30 giây và 40 ca đều đạt. Không sửa logic sản phẩm để bỏ qua lỗi test. Kiểm tra riêng thêm luồng trả lời bổ sung, giữ cặp CSV/SKU và export POD 4500×5400; file PNG có tên dài vẫn giữ đuôi `.png`.
+Release đã đạt 179 test đơn vị API, 191 test tích hợp API và 109 kịch bản frontend trên CI Linux. Kiểm tra riêng thêm luồng trả lời bổ sung, giữ cặp CSV/SKU và export POD 4500×5400; file PNG có tên dài vẫn giữ đuôi `.png`. Thay đổi backup tiếp tục có test hồi quy riêng.
 
-Chưa gọi AI trả phí, chưa đối soát số tiền với provider thật, chưa khôi phục archive production và chưa deploy. Các bước còn chờ được giữ nguyên trong checklist trên.
+Đã gọi AI thật cho một cặp ảnh với model mặc định, khôi phục thử archive production vào DB riêng và deploy. Không suy ra mọi model/nhóm sản phẩm đã được nghiệm thu; các mục còn chờ được đánh dấu riêng ở checklist.

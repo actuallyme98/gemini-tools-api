@@ -1,6 +1,6 @@
 # Backup và phục hồi LCG Agent
 
-Chưa cài timer hoặc thay đổi production trong lượt triển khai P0–P2. Các bước sau cần thực hiện khi deploy bản có CLI backup.
+Ngày 24/10/2026 đã cài timer trên production, tạo archive mã hóa và restore thử vào database riêng. Đã xác minh 17 index, session bị loại, queue tạm dừng trong DB phục hồi và giải mã được năm ảnh. DB thử và tài khoản verifier đã được gỡ sau kiểm tra. Không ghi đè DB production.
 
 ## Nội dung bảo vệ
 
@@ -11,12 +11,20 @@ Chứng chỉ, cấu hình `.env`, khóa mã hóa ảnh và khóa backup phải 
 ## Cài backup tự động
 
 1. Tạo `AGENT_BACKUP_KEY` ngẫu nhiên 32 byte (64 ký tự hex), khác key ảnh, trong `.env` server; không gửi qua log. Lưu key này và key ảnh ở nơi riêng ngoài server.
-2. Chép script, compose override và hai file systemd đi kèm vào server. Tạo thư mục `/home/ubuntu/gemini-tools/backups`, quyền 700, owner UID 1000 (ubuntu/node). Không public thư mục này qua Nginx.
+2. Chép script, compose override và hai file systemd đi kèm vào server. Tạo thư mục `/home/ubuntu/gemini-tools/backups/agent`, quyền 700, owner UID 1000 (ubuntu/node). Không public thư mục này qua Nginx.
 3. Cài service/timer vào `/etc/systemd/system`, chạy `systemctl daemon-reload` rồi `systemctl enable --now lcg-agent-backup.timer`.
 4. Chạy service một lần để kiểm tra. Service khóa chung với deploy, dừng API/worker, sao lưu, xác thực toàn bộ archive rồi bật lại ứng dụng, kể cả khi backup lỗi. Có khoảng bảo trì; frontend có thể tạm mất kết nối API. Không đổi lịch để chạy vào giờ cao điểm.
-5. Theo dõi `systemctl status lcg-agent-backup.service` và dung lượng thư mục backup. Cấu hình sao chép archive mã hóa sang nơi khác trước khi áp dụng retention; script chưa tự xóa bản cũ.
+5. Theo dõi `systemctl status lcg-agent-backup.service` và dung lượng thư mục backup. Bản local quá 14 ngày chỉ được xóa khi có marker checksum xác nhận sao chép ngoài server; bản chưa replicate luôn được giữ. Không tự xóa object R2/S3.
 
 Lịch mặc định 03:00 UTC+7 hàng ngày, trễ ngẫu nhiên tối đa 5 phút. Timer không tự được bật chỉ vì build/push image. Thư mục backup bị loại khỏi Git và Docker build context.
+
+## Sao chép R2/S3 và bản local ngoài server
+
+Theo yêu cầu dùng chung bucket, replica dùng credential R2 hiện có nhưng namespace riêng `gemini-tools/backups/`. Không thay đổi hoặc xóa ảnh ở các namespace khác. Archive được mã hóa trước upload; khóa backup và khóa ảnh không nằm trong object hoặc metadata. Cấu hình bằng `BACKUP_S3_ENDPOINT`, `BACKUP_S3_BUCKET`, `BACKUP_S3_ACCESS_KEY_ID`, `BACKUP_S3_SECRET_ACCESS_KEY`, tùy chọn `BACKUP_S3_REGION`/`BACKUP_S3_PREFIX`.
+
+Sau khi API/worker khởi động lại thành công, CLI upload rồi tải lại toàn bộ object và so sánh SHA-256 trước khi ghi marker `.replicated`. Lỗi upload/checksum giữ nguyên bản server và làm service báo lỗi. Thiếu một phần cấu hình bị từ chối trước bảo trì; bỏ trống cả bốn biến thì giữ chế độ backup tại server. Giới hạn mỗi archive 5 GB; vượt mức phải bổ sung multipart. Chưa tự cấu hình lifecycle bucket, tránh ảnh hưởng dữ liệu EziHubb.
+
+`bash scripts/agent-backup-copy.sh /duong/dan/private lcg-YYYYMMDDTHHMMSSZ.enc` tải thêm bản mã hóa về máy quản trị và kiểm tra checksum. Không đặt khóa giải mã cùng thư mục archive. Bản kiểm tra đầu tiên nằm ở `D:/LCGMedia-Backups/agent/`; khóa phục hồi nằm ngoài Git trong thư mục credentials của Codex, đã hạn chế quyền đọc file. Bản sao máy local không thay thế replica R2 theo lịch.
 
 ## Kiểm tra phục hồi
 
@@ -33,4 +41,4 @@ Restore khôi phục index, chuyển ảnh R2 trong archive sang GridFS riêng c
 
 Sau restore: kiểm đếm bản ghi, đăng nhập bằng phiên mới trong môi trường thử riêng, mở một số ảnh và hội thoại, kiểm tra sổ chi phí, dự án/kiến thức, index và request bị dừng. Chỉ quyết định chuyển DB sau khi kiểm tra này đạt; CLI không ghi đè DB production.
 
-Test tự động `test/backup.e2e-spec.ts` thực sự tạo archive rồi restore vào MongoDB tạm, kiểm tra index, session, trạng thái, file bị sửa và từ chối DB không trống. Đây là bằng chứng ở môi trường test; chưa phải xác nhận một bản backup production đã được phục hồi thành công.
+Test tự động `test/backup.e2e-spec.ts` thực sự tạo archive rồi restore vào MongoDB tạm, kiểm tra index, session, trạng thái, file bị sửa và từ chối DB không trống. Đồng thời kiểm tra upload/tải lại replica và từ chối checksum sai. `test/backup-maintenance.test.cjs` kiểm tra startup lại sau lỗi, preflight và retention trên Linux. Bằng chứng restore production ngày 24/10 được ghi ở đầu tài liệu; mỗi lần đổi định dạng/key vẫn cần kiểm tra phục hồi lại.

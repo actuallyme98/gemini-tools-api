@@ -40,6 +40,27 @@ export class StudioMockupController {
   @Get(':id') detail(@Req() req: AgentRequest, @Param('id') id: string) {
     return this.mockups.detail(req.agentUser, identifier(id));
   }
+  @Post('background-suggestions') suggestBackgrounds(
+    @Req() req: AgentRequest,
+    @Body() body: unknown,
+  ) {
+    return this.mockups.suggestBackgrounds(
+      req.agentUser,
+      parse(
+        Joi.object({
+          storeId: idSchema.required(),
+          productId: idSchema.required(),
+          source: Joi.object({
+            assetId: idSchema.required(),
+            ticketId: Joi.string().pattern(/^[a-zA-Z0-9-]{1,150}$/),
+          }).required(),
+          count: Joi.number().integer().min(1).max(6).default(3),
+          directions: Joi.string().trim().max(2000).allow('').default(''),
+        }),
+        body,
+      ),
+    );
+  }
   @Post() create(@Req() req: AgentRequest, @Body() body: unknown) {
     const input = parse<MockupInput>(
       Joi.object({
@@ -73,6 +94,16 @@ export class StudioMockupController {
         provider: Joi.string().valid('shopaikey', 'gemini').required(),
         imageModel: Joi.string().trim().min(1).max(180).required(),
         instructions: Joi.string().max(8000).allow('').default(''),
+        backgrounds: Joi.array()
+          .items(
+            Joi.object({
+              id: idSchema.required(),
+              name: Joi.string().trim().min(1).max(160).required(),
+              prompt: Joi.string().trim().min(10).max(4000).required(),
+            }),
+          )
+          .unique('id')
+          .max(12),
       }),
       body,
     );

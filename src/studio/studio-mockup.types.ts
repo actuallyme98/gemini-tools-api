@@ -15,6 +15,7 @@ export interface MockupInput {
   provider: 'shopaikey' | 'gemini';
   imageModel: string;
   instructions: string;
+  backgrounds?: { id: string; name: string; prompt: string }[];
 }
 export interface MockupSource {
   image: StudioAssetRef;
@@ -26,7 +27,8 @@ export interface MockupScene {
   id: string;
   name: string;
   instructions: string;
-  image: StudioAssetRef;
+  kind?: 'template' | 'background';
+  image?: StudioAssetRef;
 }
 export interface StudioMockup extends Entity {
   teamId: string;

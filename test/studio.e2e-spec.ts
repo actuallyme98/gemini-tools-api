@@ -1119,6 +1119,110 @@ describe('Creative Studio (isolated MongoDB; no paid calls)', () => {
       ...overrides,
     };
   }
+  it('suggests editable backgrounds with source/store ACL before any paid image call', async () => {
+    const mockups = app.get(StudioMockupService);
+    const payload = {
+      storeId: shop.id,
+      productId: product.id,
+      source: { assetId: source.id },
+      count: 2,
+      directions: 'Không gian Giáng sinh',
+    };
+    const suggestions = [
+      { title: 'Bàn gỗ', prompt: 'Chỉ đổi nền sang bàn gỗ sáng tự nhiên.' },
+      { title: 'Kệ trắng', prompt: 'Chỉ đổi nền sang kệ trắng ở cạnh cửa sổ.' },
+    ];
+    const imageCalls = ai.composeImage.mock.calls.length,
+      visionCalls = ai.analyzeStudioImages.mock.calls.length;
+    await request(http())
+      .post('/api/agent/studio/mockups/background-suggestions')
+      .send(payload)
+      .expect(401);
+    await request(http())
+      .post('/api/agent/studio/mockups/background-suggestions')
+      .set('Authorization', auth(outsider))
+      .send(payload)
+      .expect(404);
+    await request(http())
+      .post('/api/agent/studio/mockups/background-suggestions')
+      .set('Authorization', auth(seller))
+      .send({ ...payload, count: 7 })
+      .expect(400);
+    await expect(
+      mockups.suggestBackgrounds(seller, {
+        ...payload,
+        source: { assetId: master.id },
+      }),
+    ).rejects.toThrow();
+    expect(ai.analyzeStudioImages.mock.calls.length).toBe(visionCalls);
+    ai.agentJSON.mockResolvedValueOnce({ suggestions });
+    const response = await request(http())
+      .post('/api/agent/studio/mockups/background-suggestions')
+      .set('Authorization', auth(seller))
+      .send(payload)
+      .expect(201);
+    expect(response.body).toEqual({ suggestions });
+    expect(ai.analyzeStudioImages.mock.calls.length).toBe(visionCalls + 1);
+    const suggestionPrompt = ai.agentJSON.mock.calls.at(-1) as [string];
+    expect(suggestionPrompt[0]).toContain(payload.directions);
+    ai.agentJSON.mockResolvedValueOnce({ suggestions: [] });
+    await request(http())
+      .post('/api/agent/studio/mockups/background-suggestions')
+      .set('Authorization', auth(seller))
+      .send(payload)
+      .expect(502);
+    expect(ai.composeImage.mock.calls.length).toBe(imageCalls);
+  });
+  it('renders Etsy references and edited background prompts in one immutable set with the correct image inputs', async () => {
+    const mockups = app.get(StudioMockupService),
+      render = app.get(StudioMockupWorker);
+    const payload = await mockupInput();
+    const background = {
+      id: randomUUID(),
+      name: 'Nền sân vườn',
+      prompt: 'Thay nền thành sân vườn với ánh sáng ban mai, giữ nguyên chữ.',
+    };
+    payload.backgrounds = [background];
+    payload.sources[0].colors = [''];
+    payload.sources[0].sceneIds.push(background.id);
+    const created = await request(http())
+      .post('/api/agent/studio/mockups')
+      .set('Authorization', auth(seller))
+      .send(payload)
+      .expect(201);
+    const job = created.body as StudioMockup;
+    expect(job.count).toBe(2);
+    expect(job.scenes.find((s) => s.id === background.id).kind).toBe(
+      'background',
+    );
+    background.prompt = 'Changed client after submission';
+    await mockups.ensureSlots(job);
+    const { slots } = await mockups.detail(seller, job.id);
+    const calls = ai.composeImage.mock.calls.length;
+    await render.execute(slots[0].id, seller.id);
+    await render.execute(slots[1].id, seller.id);
+    const first = ai.composeImage.mock.calls[calls][0] as {
+      prompt: string;
+      images: unknown[];
+    };
+    const second = ai.composeImage.mock.calls[calls + 1][0] as {
+      prompt: string;
+      images: unknown[];
+    };
+    expect(first.images).toHaveLength(2);
+    expect(first.prompt).toContain('ẢNH 2');
+    expect(second.images).toHaveLength(1);
+    expect(second.prompt).toContain('ánh sáng ban mai');
+    expect(second.prompt).not.toContain('Changed client');
+    expect(second.prompt).not.toContain('ẢNH 2');
+    await render.execute(slots[1].id, seller.id);
+    expect(ai.composeImage.mock.calls.length - calls).toBe(2);
+    const repeated = await request(http())
+      .post('/api/agent/studio/mockups')
+      .set('Authorization', auth(seller))
+      .send({ ...payload, backgrounds: [{ ...background, prompt: '' }] });
+    expect(repeated.status).toBe(400);
+  });
   it('persists per-source scene/color combinations, rejects spoofing and deduplicates submission/dispatch', async () => {
     const mockups = app.get(StudioMockupService),
       render = app.get(StudioMockupWorker);

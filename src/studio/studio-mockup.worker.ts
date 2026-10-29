@@ -189,8 +189,17 @@ export class StudioMockupWorker implements OnModuleInit {
       await this.mockups.checkPermission(job);
       const source = job.sources[slot.sourceIndex],
         scene = job.scenes.find((s) => s.id === slot.sceneId);
+      if (!source || !scene || (scene.kind !== 'background' && !scene.image))
+        throw new ApiError(
+          409,
+          'STUDIO_INPUTS_MISSING',
+          'Thiếu ảnh nguồn hoặc ảnh mockup tham chiếu đã chốt.',
+        );
       const images = await Promise.all(
-        [source.image, scene.image].map(async (ref) => {
+        [
+          source.image,
+          ...(scene.kind === 'background' ? [] : [scene.image]),
+        ].map(async (ref) => {
           const { asset, buffer } = await this.mockups.studio.assets.read(
             ref.owner,
             ref.id,
@@ -256,6 +265,7 @@ export class StudioMockupWorker implements OnModuleInit {
             slotId: id,
             sourceId: source.image.id,
             sceneId: scene.id,
+            sceneKind: scene.kind ?? 'template',
             color: slot.color,
           });
           const buffer = await this.ai.composeImage(

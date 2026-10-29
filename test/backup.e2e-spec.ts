@@ -1,5 +1,13 @@
 import { MongoMemoryServer } from 'mongodb-memory-server';
-import { MongoClient, GridFSBucket } from 'mongodb';
+import { MongoClient, GridFSBucket, ObjectId } from 'mongodb';
+import { Test } from '@nestjs/testing';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { StudioModule } from '../src/studio/studio.module';
+import { StudioService } from '../src/studio/studio.service';
+import { TaskQueueService } from '../src/queue/task-queue.service';
+import { AIService } from '../src/ai/ai.service';
+import { R2Service } from '../src/r2/r2.service';
+import { AuditLogService } from '../src/audit/audit-log.service';
 import { S3Client } from '@aws-sdk/client-s3';
 import { randomBytes } from 'node:crypto';
 import { promises as fs } from 'node:fs';
@@ -51,6 +59,25 @@ it('restores an authenticated backup into an empty isolated database, revokes se
     await db.collection('agent_records').insertMany([
       { kind: 'user', id: 'user', data: { authVersion: 0 } },
       { kind: 'session', id: 'session', data: {} },
+      { kind: 'studio-idea', id: 'idea', data: { state: 'approved' } },
+      { kind: 'studio-ticket', id: 'ticket', data: { state: 'scheduled' } },
+      {
+        kind: 'studio-slot',
+        id: 'artwork',
+        data: { state: 'submitted', role: 'artwork' },
+      },
+      {
+        kind: 'studio-slot',
+        id: 'done',
+        data: { state: 'done', resultId: 'keep' },
+      },
+      { kind: 'studio-plan', id: 'briefs', data: { state: 'queued' } },
+      { kind: 'studio-mockup', id: 'mockup', data: { state: 'running' } },
+      {
+        kind: 'studio-mockup-slot',
+        id: 'mockup-image',
+        data: { state: 'preparing' },
+      },
       { kind: 'run', id: 'run', data: { state: 'running' } },
       { kind: 'step', id: 'step', data: { state: 'queued' } },
       {
@@ -76,10 +103,46 @@ it('restores an authenticated backup into an empty isolated database, revokes se
     await db
       .collection('agent_records')
       .createIndex(
-        { 'data.title': 'text', 'data.content': 'text' },
-        { default_language: 'none' },
+        { 'data.title': 'text', 'data.content': 'text', 'data.tags': 'text' },
+        { default_language: 'none', name: 'company_knowledge_search' },
       );
     const encrypted = Buffer.from('encrypted-image-bytes');
+    const bundle = Buffer.from('encrypted-original-skill-zip');
+    const upload = new GridFSBucket(db, {
+      bucketName: 'agent_image_backups',
+    }).openUploadStream('skill-bundle.bin');
+    await new Promise<void>((resolve, reject) => {
+      upload.on('finish', () => resolve());
+      upload.on('error', reject);
+      upload.end(bundle);
+    });
+    await db.collection('agent_records').insertMany([
+      {
+        kind: 'studio-bundle',
+        id: 'bundle',
+        data: { gridId: upload.id.toHexString(), owner: 'admin' },
+      },
+      {
+        kind: 'studio-schedule',
+        id: 'company',
+        data: { dailyTime: '20:30', revision: 3 },
+      },
+      {
+        kind: 'team-budget',
+        id: 'team',
+        data: {
+          currency: 'CREDIT',
+          revision: 5,
+          periods: {
+            '2026-10-29': {
+              spentMicro: 2000000,
+              reservedMicro: 1000000,
+              entries: {},
+            },
+          },
+        },
+      },
+    ]);
     const s3 = jest.spyOn(S3Client.prototype, 'send').mockReturnValue(
       Promise.resolve({
         ContentLength: encrypted.length,
@@ -196,7 +259,19 @@ it('restores an authenticated backup into an empty isolated database, revokes se
     expect((await restored.findOne({ kind: 'user' }))?.data.authVersion).toBe(
       1,
     );
-    expect(await db.collection('agent_records').countDocuments()).toBe(8);
+    expect(await db.collection('agent_records').countDocuments()).toBe(18);
+    expect((await restored.findOne({ kind: 'studio-idea' }))?.data.state).toBe(
+      'changes_requested',
+    );
+    expect(
+      (await restored.findOne({ kind: 'studio-ticket' }))?.data.state,
+    ).toBe('blocked');
+    expect(
+      (await restored.findOne({ kind: 'studio-mockup' }))?.data.state,
+    ).toBe('blocked');
+    for (const id of ['artwork', 'briefs', 'mockup-image'])
+      expect((await restored.findOne({ id }))?.data.state).toBe('interrupted');
+    expect((await restored.findOne({ id: 'done' }))?.data.state).toBe('done');
     expect((await restored.findOne({ kind: 'image-job' }))?.data.state).toBe(
       'interrupted',
     );
@@ -217,6 +292,61 @@ it('restores an authenticated backup into an empty isolated database, revokes se
     for await (const chunk of grid.openDownloadStreamByName('r2-image.bin'))
       restoredBytes.push(chunk as Buffer);
     expect(Buffer.concat(restoredBytes)).toEqual(encrypted);
+    const archived = await target
+      .collection('agent_records')
+      .findOne({ kind: 'studio-bundle' });
+    const restoredBundle: Buffer[] = [];
+    for await (const chunk of grid.openDownloadStream(
+      new ObjectId((archived?.data as { gridId: string }).gridId),
+    ))
+      restoredBundle.push(chunk as Buffer);
+    expect(Buffer.concat(restoredBundle)).toEqual(bundle);
+    const ledger = await target
+      .collection('agent_records')
+      .findOne({ kind: 'team-budget' });
+    expect((ledger?.data as Record<string, unknown>).periods).toEqual({
+      '2026-10-29': {
+        spentMicro: 2000000,
+        reservedMicro: 1000000,
+        entries: {},
+      },
+    });
+    const module = await Test.createTestingModule({
+      imports: [
+        ConfigModule.forRoot({ isGlobal: true, ignoreEnvFile: true }),
+        StudioModule,
+      ],
+    })
+      .overrideProvider(ConfigService)
+      .useValue(
+        new ConfigService({
+          AGENT_ENABLED: true,
+          STUDIO_ENABLED: true,
+          QUEUE_ENABLED: false,
+          MONGODB_URI: mongo.getUri(),
+          MONGODB_DATABASE: 'lcg_restore_test',
+          AGENT_ASSET_ENCRYPTION_KEY: 'a'.repeat(64),
+        }),
+      )
+      .overrideProvider(TaskQueueService)
+      .useValue({ enabled: false, register: jest.fn() })
+      .overrideProvider(AIService)
+      .useValue({})
+      .overrideProvider(R2Service)
+      .useValue({})
+      .overrideProvider(AuditLogService)
+      .useValue({ write: jest.fn().mockResolvedValue(undefined) })
+      .compile();
+    const app = module.createNestApplication({ logger: false });
+    try {
+      await app.init();
+      expect(await app.get(StudioService).schedule()).toMatchObject({
+        dailyTime: '20:30',
+        revision: 3,
+      });
+    } finally {
+      await app.close();
+    }
     await expect(
       restore(client, 'test.enc', 'lcg_restore_test', env),
     ).rejects.toThrow('empty');

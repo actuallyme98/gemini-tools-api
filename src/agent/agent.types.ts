@@ -33,6 +33,14 @@ export interface AdminAudit extends Entity {
   errorCode?: string;
 }
 export interface Asset extends Entity {
+  printSpec?: {
+    width: number;
+    height: number;
+    dpi: number;
+    background?: 'transparent' | 'white';
+  };
+  studioMockupId?: string;
+  studioTicketId?: string;
   name: string;
   category: string;
   kind: 'source' | 'reference' | 'design' | 'template' | 'result';

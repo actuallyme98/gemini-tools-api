@@ -49,5 +49,6 @@ import {
     ConversationSharingController,
     SharedConversationController,
   ],
+  exports: [AgentAssetsService],
 })
 export class AgentModule {}

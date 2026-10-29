@@ -13,6 +13,7 @@ import type { Asset } from './agent.types';
 import { imageMimeType } from '../utils/image.util';
 import { R2Service } from '../r2/r2.service';
 import { AuditLogService } from '../audit/audit-log.service';
+import { assertStudioAssetAccess } from '../studio/studio-asset-access';
 
 export function safeFilename(name: string) {
   return (
@@ -38,7 +39,18 @@ export class AgentAssetsService {
     owner: string,
     buffer: Buffer,
     fields: Pick<Asset, 'name' | 'kind' | 'category'> &
-      Partial<Pick<Asset, 'parentId' | 'runId' | 'stepId' | 'checks'>>,
+      Partial<
+        Pick<
+          Asset,
+          | 'parentId'
+          | 'runId'
+          | 'stepId'
+          | 'checks'
+          | 'studioTicketId'
+          | 'printSpec'
+          | 'studioMockupId'
+        >
+      >,
     generatedOutput = false,
   ) {
     if (buffer.length > 32 * 1024 * 1024 || !imageMimeType(buffer))
@@ -114,8 +126,9 @@ export class AgentAssetsService {
     }
     return this.store.insert('asset', asset);
   }
-  async read(owner: string, id: string) {
+  async read(owner: string, id: string, actorId = owner) {
     const asset = await this.store.get<Asset>('asset', id, owner);
+    await assertStudioAssetAccess(this.store, asset, actorId);
     const encrypted = asset.storageKey.startsWith('mongo:')
       ? await this.store.readImageBackup(asset.storageKey.slice(6))
       : await this.r2.getAgentObject(asset.storageKey);
@@ -134,7 +147,7 @@ export class AgentAssetsService {
       buffer: Buffer.concat([decipher.update(encrypted), decipher.final()]),
     };
   }
-  async preview(owner: string, id: string) {
+  async preview(owner: string, id: string, actorId = owner) {
     await this.store.get<Asset>('asset', id, owner);
     if (this.previewCount >= 100)
       throw new ApiError(
@@ -145,7 +158,7 @@ export class AgentAssetsService {
     this.previewCount++;
     const task = this.previewTail
       .then(async () => {
-        const { buffer } = await this.read(owner, id);
+        const { buffer } = await this.read(owner, id, actorId);
         return sharp(buffer, { limitInputPixels: 32_000_000 })
           .rotate()
           .resize(512, 512, { fit: 'inside', withoutEnlargement: true })

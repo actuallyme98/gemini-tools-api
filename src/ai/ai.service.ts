@@ -3,6 +3,8 @@ import { ConfigService } from '@nestjs/config';
 import { AI_PROVIDERS } from './ai-provider';
 import type {
   AICapability,
+  AIInputImage,
+  ComposeImageParams,
   AIProvider,
   AIProviderCatalog,
   EditImageParams,
@@ -65,6 +67,21 @@ export class AIService implements OnModuleInit {
       image
         ? provider.generateJSON(prompt, image)
         : provider.generateJSON(prompt),
+    );
+  }
+  async analyzeStudioImages(
+    prompt: string,
+    images: AIInputImage[],
+  ): Promise<unknown> {
+    const provider = this.providerFor('vision');
+    if (!provider.generateJSONImages)
+      throw new ApiError(
+        400,
+        'AI_CAPABILITY_UNAVAILABLE',
+        'Kết nối phân tích ảnh chưa hỗ trợ ngữ cảnh Studio.',
+      );
+    return this.execute(provider, () =>
+      provider.generateJSONImages(prompt, images),
     );
   }
 
@@ -166,6 +183,21 @@ export class AIService implements OnModuleInit {
     if (!provider.editImage) throw new Error('AI provider cannot edit images');
     await this.validateImageModel(providerId, params.imageModel);
     return this.execute(provider, () => provider.editImage(params));
+  }
+
+  async composeImage(
+    params: ComposeImageParams,
+    providerId?: string,
+  ): Promise<Buffer> {
+    const provider = this.providerFor('image', providerId);
+    if (!provider.composeImage)
+      throw new ApiError(
+        400,
+        'AI_CAPABILITY_UNAVAILABLE',
+        'Kết nối AI chưa hỗ trợ bộ ảnh Studio.',
+      );
+    await this.validateImageModel(providerId, params.imageModel);
+    return this.execute(provider, () => provider.composeImage(params));
   }
 
   async generateImagesFromReferalImages(

@@ -13,7 +13,11 @@ import { AgentStore } from '../agent/agent.store';
 import type { CompanySettings } from '../agent/agent.types';
 import { ApiError } from '../common/api-error';
 
-export type QueueTask = { kind: 'agent' | 'image'; id: string; owner: string };
+export type QueueTask = {
+  kind: 'agent' | 'image' | 'studio' | 'studio-plan' | 'studio-mockup';
+  id: string;
+  owner: string;
+};
 export class QueueDeferred extends Error {}
 type Handler = (task: QueueTask) => Promise<void>;
 const hash = (value: string) =>

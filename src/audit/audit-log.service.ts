@@ -20,6 +20,7 @@ export type AuditContext = {
   path: string;
   owner?: string;
   billingScope?: string;
+  billingTeamId?: string;
   billingCalls?: Record<string, number>;
 };
 export type AuditPart = { text: string } | { buffer: Buffer; mimeType: string };

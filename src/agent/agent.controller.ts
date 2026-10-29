@@ -300,9 +300,9 @@ export class AgentController {
     );
   }
   @Get('assets') async listAssets(@Req() req: AgentRequest) {
-    return (await this.store.list<Asset>('asset', req.agentUser.id)).map(
-      publicAsset,
-    );
+    return (await this.store.list<Asset>('asset', req.agentUser.id))
+      .filter((asset) => !asset.studioTicketId && !asset.studioMockupId)
+      .map(publicAsset);
   }
   @Get('runs') async runs(@Req() req: AgentRequest) {
     const owner = req.agentUser.id;

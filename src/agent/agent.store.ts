@@ -33,6 +33,20 @@ interface StoredRecord extends Document {
   updatedAt: Date;
   expiresAt?: Date;
 }
+function recordFields(
+  fields: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(fields).map(([key, value]) => [
+      key === 'owner' || key === 'id' || key === '$or' || key === '$and'
+        ? key
+        : `data.${key}`,
+      (key === '$or' || key === '$and') && Array.isArray(value)
+        ? value.map((item) => recordFields(item as Record<string, unknown>))
+        : value,
+    ]),
+  );
+}
 
 @Injectable()
 export class AgentStore implements OnModuleInit, OnApplicationShutdown {
@@ -66,6 +80,7 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
     );
     await this.records.createIndexes([
       { key: { kind: 1, id: 1 }, unique: true },
+      { key: { id: 1, kind: 1 } },
       { key: { kind: 1, updatedAt: -1, id: -1 } },
       { key: { kind: 1, owner: 1, updatedAt: -1 } },
       { key: { kind: 1, owner: 1, 'data.state': 1, updatedAt: 1 } },
@@ -83,6 +98,30 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
       { key: { kind: 1, 'data.runId': 1 } },
       { key: { kind: 1, 'data.memberIds': 1, updatedAt: -1 } },
       { key: { kind: 1, 'data.projectId': 1, updatedAt: -1 } },
+      { key: { kind: 1, 'data.teamId': 1, 'data.state': 1, updatedAt: -1 } },
+      { key: { kind: 1, 'data.input.storeId': 1, updatedAt: -1 } },
+      { key: { kind: 1, 'data.ticketId': 1, updatedAt: -1 } },
+      { key: { kind: 1, 'data.jobId': 1, updatedAt: -1 } },
+      { key: { kind: 1, 'data.storeId': 1, updatedAt: -1 } },
+      { key: { kind: 1, 'data.sources.image.id': 1 } },
+      { key: { kind: 1, 'data.scenes.image.id': 1 } },
+      { key: { kind: 1, 'data.ideaId': 1, updatedAt: -1 } },
+      { key: { kind: 1, 'data.occurrenceId': 1, 'data.teamId': 1 } },
+      { key: { kind: 1, 'data.batchId': 1, updatedAt: -1 } },
+      { key: { kind: 1, 'data.dueAt': 1, 'data.state': 1 } },
+      { key: { kind: 1, 'data.resultId': 1 } },
+      { key: { kind: 1, 'data.assetId': 1 } },
+      { key: { kind: 1, 'data.contextImages.id': 1 } },
+      { key: { kind: 1, 'data.seriesId': 1, 'data.versionNumber': -1 } },
+      {
+        key: { 'data.seriesId': 1, 'data.versionNumber': 1 },
+        unique: true,
+        partialFilterExpression: {
+          kind: 'studio-resource',
+          'data.seriesId': { $type: 'string' },
+          'data.versionNumber': { $type: 'number' },
+        },
+      },
       {
         key: {
           'data.title': 'text',
@@ -293,12 +332,7 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
       await this.database()
         .find({
           kind,
-          ...Object.fromEntries(
-            Object.entries(fields).map(([key, value]) => [
-              key === 'owner' || key === 'id' ? key : `data.${key}`,
-              value,
-            ]),
-          ),
+          ...recordFields(fields),
         })
         .sort({ updatedAt: order })
         .limit(limit)
@@ -307,6 +341,206 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
   }
   async remove(kind: string, id: string) {
     await this.database().deleteOne({ kind, id });
+  }
+  async studioBatchCounts(ids: string[]) {
+    return this.database()
+      .aggregate<{ _id: { batchId: string; state: string }; count: number }>(
+        [
+          { $match: { kind: 'studio-ticket', 'data.batchId': { $in: ids } } },
+          {
+            $group: {
+              _id: { batchId: '$data.batchId', state: '$data.state' },
+              count: { $sum: 1 },
+            },
+          },
+        ],
+        { maxTimeMS: 5000 },
+      )
+      .toArray();
+  }
+  async studioVisibleStoreIds(user: {
+    id: string;
+    role: string;
+    disabled?: boolean;
+  }) {
+    if (user.disabled) return [] as string[];
+    const rows = await this.database()
+      .aggregate<{ id: string }>(
+        [
+          { $match: { kind: 'studio-store', 'data.archived': false } },
+          {
+            $lookup: {
+              from: 'agent_records',
+              localField: 'data.teamId',
+              foreignField: 'id',
+              as: 'team',
+            },
+          },
+          { $unwind: '$team' },
+          {
+            $match: {
+              'team.kind': 'studio-team',
+              'team.data.archived': false,
+              ...(user.role === 'admin'
+                ? {}
+                : {
+                    $or: [
+                      {
+                        'team.data.memberIds': user.id,
+                        'data.sellerIds': user.id,
+                      },
+                      {
+                        'team.data.members': {
+                          $elemMatch: { userId: user.id, role: 'leader' },
+                        },
+                      },
+                    ],
+                  }),
+            },
+          },
+          { $project: { _id: 0, id: 1 } },
+        ],
+        { maxTimeMS: 5000 },
+      )
+      .toArray();
+    return rows.map((row) => row.id);
+  }
+  async studioDashboard(storeIds: string[]) {
+    const states = async (kind: string, field: string) =>
+      this.database()
+        .aggregate<{ _id: string; count: number }>(
+          [
+            { $match: { kind, [`data.${field}`]: { $in: storeIds } } },
+            { $group: { _id: '$data.state', count: { $sum: 1 } } },
+          ],
+          { maxTimeMS: 5000 },
+        )
+        .toArray();
+    const [ideas, tickets, mockups] = await Promise.all([
+      states('studio-idea', 'input.storeId'),
+      states('studio-ticket', 'storeId'),
+      states('studio-mockup', 'storeId'),
+    ]);
+    const images = await this.database()
+      .aggregate<{ _id: string; count: number }>(
+        [
+          {
+            $match: {
+              kind: { $in: ['studio-slot', 'studio-mockup-slot'] },
+              'data.state': 'done',
+            },
+          },
+          {
+            $lookup: {
+              from: 'agent_records',
+              let: { parent: { $ifNull: ['$data.ticketId', '$data.jobId'] } },
+              pipeline: [
+                {
+                  $match: {
+                    $expr: { $eq: ['$id', '$$parent'] },
+                    kind: { $in: ['studio-ticket', 'studio-mockup'] },
+                    'data.storeId': { $in: storeIds },
+                  },
+                },
+              ],
+              as: 'parent',
+            },
+          },
+          { $match: { 'parent.0': { $exists: true } } },
+          {
+            $group: {
+              _id: {
+                $cond: [
+                  { $eq: ['$data.role', 'artwork'] },
+                  'artworks',
+                  'images',
+                ],
+              },
+              count: { $sum: 1 },
+            },
+          },
+        ],
+        { maxTimeMS: 5000 },
+      )
+      .toArray();
+    const reviews = await this.database()
+      .aggregate<{ _id: string; count: number }>(
+        [
+          { $match: { kind: 'studio-review' } },
+          {
+            $lookup: {
+              from: 'agent_records',
+              localField: 'data.ticketId',
+              foreignField: 'id',
+              as: 'parent',
+            },
+          },
+          { $unwind: '$parent' },
+          {
+            $match: {
+              'parent.kind': { $in: ['studio-ticket', 'studio-mockup'] },
+              'parent.data.storeId': { $in: storeIds },
+            },
+          },
+          { $group: { _id: '$data.decision', count: { $sum: 1 } } },
+        ],
+        { maxTimeMS: 5000 },
+      )
+      .toArray();
+    const counts = (rows: { _id: string; count: number }[]) =>
+      Object.fromEntries(rows.map((row) => [row._id, row.count]));
+    return {
+      ideas: counts(ideas),
+      tickets: counts(tickets),
+      mockups: counts(mockups),
+      outputs: counts(images),
+      reviews: counts(reviews),
+    };
+  }
+  async studioOutputs(storeIds: string[], page: number) {
+    const rows = await this.database()
+      .aggregate<{
+        items: import('../studio/studio.types').StudioReview[];
+        total: { count: number }[];
+      }>(
+        [
+          { $match: { kind: 'studio-review', 'data.decision': 'approved' } },
+          {
+            $lookup: {
+              from: 'agent_records',
+              localField: 'data.ticketId',
+              foreignField: 'id',
+              as: 'parent',
+            },
+          },
+          { $unwind: '$parent' },
+          {
+            $match: {
+              'parent.kind': { $in: ['studio-ticket', 'studio-mockup'] },
+              'parent.data.storeId': { $in: storeIds },
+            },
+          },
+          { $sort: { updatedAt: -1, id: -1 } },
+          {
+            $facet: {
+              items: [
+                { $skip: (page - 1) * 24 },
+                { $limit: 24 },
+                { $replaceWith: '$data' },
+              ],
+              total: [{ $count: 'count' }],
+            },
+          },
+        ],
+        { maxTimeMS: 5000 },
+      )
+      .toArray();
+    return {
+      items: rows[0]?.items ?? [],
+      total: rows[0]?.total[0]?.count ?? 0,
+      page,
+      limit: 24,
+    };
   }
   async workspaceRuns(
     owner: string,
@@ -401,12 +635,7 @@ export class AgentStore implements OnModuleInit, OnApplicationShutdown {
   ) {
     const filter = {
       kind,
-      ...Object.fromEntries(
-        Object.entries(fields).map(([key, value]) => [
-          key === 'owner' || key === 'id' ? key : `data.${key}`,
-          value,
-        ]),
-      ),
+      ...recordFields(fields),
     };
     const [rows, total] = await Promise.all([
       this.database()

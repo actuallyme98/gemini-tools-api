@@ -24,6 +24,7 @@ export type CallUsage = {
   responseId?: string;
 };
 export type UsageEntry = {
+  team?: { id: string; day: string };
   currency?: 'USD' | 'CREDIT';
   scope?: string;
   id: string;

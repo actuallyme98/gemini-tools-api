@@ -5,6 +5,12 @@ export interface AIInputImage {
   mimeType: string;
 }
 
+export interface ComposeImageParams {
+  prompt: string;
+  images: AIInputImage[];
+  imageModel?: string;
+}
+
 export interface EditImageParams {
   imageModel?: string;
   base64Image: string;
@@ -50,9 +56,11 @@ export interface AIProvider {
   readonly capabilities: readonly AICapability[];
   validateConfiguration(capability: AICapability): void;
   generateJSON(prompt: string, image?: AIInputImage): Promise<unknown>;
+  generateJSONImages?(prompt: string, images: AIInputImage[]): Promise<unknown>;
   generateImage?(prompt: string, imageModel?: string): Promise<Buffer>;
   getImageModels?(refresh?: boolean): Promise<AIImageModelCatalog>;
   editImage?(params: EditImageParams): Promise<Buffer>;
+  composeImage?(params: ComposeImageParams): Promise<Buffer>;
   generateImagesFromReferalImages?(
     params: ReferenceImagesParams,
   ): Promise<Buffer[]>;

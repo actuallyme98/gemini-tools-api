@@ -9,6 +9,7 @@ import { ApiExceptionFilter } from './common/api-exception.filter';
 import { BackgroundModule } from './background/background.module';
 import { AuditModule } from './audit/audit.module';
 import { AgentModule } from './agent/agent.module';
+import { StudioModule } from './studio/studio.module';
 
 @Module({
   controllers: [HealthController],
@@ -23,6 +24,7 @@ import { AgentModule } from './agent/agent.module';
     IdeaModule,
     BackgroundModule,
     AgentModule,
+    StudioModule,
   ],
 })
 export class AppModule {}

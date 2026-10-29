@@ -15,6 +15,8 @@ import type {
   UsageEntry,
 } from './budget.types';
 import { budgetWeek, usageCost, usdMicro } from './budget.util';
+import { budgetDay, type TeamBudgetAccount } from './team-budget.types';
+import type { StudioTeam } from '../studio/studio.types';
 
 @Injectable()
 export class BudgetService {
@@ -350,6 +352,7 @@ export class BudgetService {
     requestId: string,
     spec: Pick<UsageEntry, 'provider' | 'model' | 'operation'>,
     scope?: string,
+    team?: UsageEntry['team'],
   ) {
     const user = await this.store.find<AgentUser>('user', owner);
     if (!user || user.disabled)
@@ -417,6 +420,7 @@ export class BudgetService {
             'Sổ chi phí tuần đã đạt giới hạn. Liên hệ quản trị viên.',
           );
         period.entries[id] = {
+          ...(team ? { team } : {}),
           currency,
           ...spec,
           ...(scope ? { scope } : {}),
@@ -441,7 +445,7 @@ export class BudgetService {
     usage?: CallUsage,
     manual = false,
   ) {
-    return this.mutate(owner, (account) => {
+    const account = await this.mutate(owner, (account) => {
       const period = account.periods[key],
         entry = period?.entries[id];
       if (!entry)
@@ -481,6 +485,14 @@ export class BudgetService {
       entry.basis = cost.basis;
       entry.settledAt = new Date().toISOString();
     });
+    const entry = account.periods[key]?.entries[id];
+    if (entry?.team)
+      await this.syncTeamEntry(entry.team, entry).catch(() =>
+        this.logger.error(
+          'Personal usage saved; Team budget mirror requires reconciliation.',
+        ),
+      );
+    return account;
   }
   async call<T>(
     spec: Pick<UsageEntry, 'provider' | 'model' | 'operation'>,
@@ -509,7 +521,33 @@ export class BudgetService {
       context.requestId,
       spec,
       context.billingScope,
+      context.billingTeamId
+        ? { id: context.billingTeamId, day: budgetDay().key }
+        : undefined,
     );
+    if (context.billingTeamId) {
+      try {
+        const account = await this.account(context.owner);
+        const entry = account.periods[reservation.key].entries[id];
+        await this.reserveTeam(
+          context.billingTeamId,
+          context.owner,
+          reservation.key,
+          entry,
+        );
+      } catch (error) {
+        // No upstream call has started. A partial admission is released or repaired from this durable zero-cost entry.
+        await this.settle(context.owner, reservation.key, id, {
+          micro: 0,
+          basis: 'configured_rates',
+        }).catch(() =>
+          this.logger.error(
+            'Team admission blocked; personal hold needs reconciliation.',
+          ),
+        );
+        throw error;
+      }
+    }
     let result: T;
     try {
       result = await task();
@@ -550,5 +588,284 @@ export class BudgetService {
       );
     }
     return result;
+  }
+  private async teamAccount(teamId: string) {
+    const policy = await this.policy();
+    await this.store.ensure<TeamBudgetAccount>('team-budget', {
+      ...this.store.create<TeamBudgetAccount>(teamId, {
+        currency: policy.currency ?? 'USD',
+        dailyLimitMicro: null,
+        policyVersion: 0,
+        revision: 0,
+        periods: {},
+      }),
+      id: teamId,
+    });
+    return this.store.find<TeamBudgetAccount>('team-budget', teamId);
+  }
+  private async mutateTeam(
+    teamId: string,
+    change: (account: TeamBudgetAccount) => void,
+    admission = false,
+  ) {
+    await this.teamAccount(teamId);
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const account = await this.store.find<TeamBudgetAccount>(
+        'team-budget',
+        teamId,
+      );
+      const next = structuredClone(account);
+      change(next);
+      // shortcut: bounded journal; archive settled Team history before a Team reaches the document limit.
+      if (
+        Buffer.byteLength(JSON.stringify(next)) >
+        (admission ? 8 : 15) * 1024 * 1024
+      )
+        throw new ApiError(
+          503,
+          'BUDGET_JOURNAL_FULL',
+          'Sổ chi phí Team cần được lưu trữ trước khi nhận thêm yêu cầu.',
+        );
+      const saved = await this.store.patch<TeamBudgetAccount>(
+        'team-budget',
+        teamId,
+        teamId,
+        { ...next, revision: next.revision + 1 },
+        { revision: account.revision },
+      );
+      if (saved) return saved;
+    }
+    throw new ApiError(
+      409,
+      'BUDGET_CONFLICT',
+      'Ngân sách Team đang được cập nhật. Vui lòng tải lại.',
+    );
+  }
+  private async reserveTeam(
+    teamId: string,
+    owner: string,
+    personalPeriod: string,
+    entry: UsageEntry,
+  ) {
+    const team = await this.store.find<StudioTeam>('studio-team', teamId);
+    const user = await this.store.find<AgentUser>('user', owner);
+    if (
+      !team ||
+      team.archived ||
+      !user ||
+      user.disabled ||
+      (user.role !== 'admin' && !team.memberIds.includes(owner))
+    )
+      throw new ApiError(
+        403,
+        'TEAM_BUDGET_ACCESS_REVOKED',
+        'Tài khoản không còn quyền sử dụng ngân sách Team.',
+      );
+    const day = entry.team.day;
+    await this.mutateTeam(
+      teamId,
+      (account) => {
+        if (
+          Object.values(account.periods).some(
+            (period) => period.entries[entry.id],
+          )
+        )
+          throw new ApiError(
+            409,
+            'BUDGET_REQUEST_ALREADY_SUBMITTED',
+            'Khoản giữ chỗ Team đã tồn tại; không tự gửi lại request.',
+          );
+        if (account.currency !== (entry.currency ?? 'USD')) {
+          if (
+            Object.values(account.periods).some(
+              (period) => Object.keys(period.entries).length,
+            )
+          )
+            throw new ApiError(
+              409,
+              'BUDGET_CURRENCY_LOCKED',
+              'Sổ chi phí Team khác đơn vị hiện tại. Cần đối soát trước khi dùng.',
+            );
+          account.currency = entry.currency ?? 'USD';
+        }
+        const period = (account.periods[day] ??= {
+          limitMicro: account.dailyLimitMicro,
+          spentMicro: 0,
+          reservedMicro: 0,
+          entries: {},
+        });
+        period.limitMicro = account.dailyLimitMicro;
+        if (
+          period.limitMicro !== null &&
+          entry.reservedMicro + period.spentMicro + period.reservedMicro >
+            period.limitMicro
+        )
+          throw new ApiError(
+            403,
+            'TEAM_BUDGET_EXCEEDED',
+            `Team không đủ ngân sách ngày ${day}. Cần giữ chỗ ${entry.reservedMicro / 1e6} ${account.currency === 'CREDIT' ? 'credit' : 'USD'}. Hạn mức được cấp lại lúc 00:00 UTC+7 hoặc quản trị viên có thể tăng giới hạn.`,
+          );
+        if (Object.keys(period.entries).length >= 5000)
+          throw new ApiError(
+            503,
+            'BUDGET_JOURNAL_FULL',
+            'Sổ chi phí Team hôm nay đã đầy.',
+          );
+        period.entries[entry.id] = {
+          id: entry.id,
+          owner,
+          personalPeriod,
+          requestId: entry.requestId,
+          scope: entry.scope,
+          reservedMicro: entry.reservedMicro,
+          status: 'held',
+          createdAt: entry.createdAt,
+        };
+        period.reservedMicro += entry.reservedMicro;
+      },
+      true,
+    );
+  }
+  private async syncTeamEntry(
+    team: NonNullable<UsageEntry['team']>,
+    entry: UsageEntry,
+  ) {
+    await this.mutateTeam(team.id, (account) => {
+      const period = account.periods[team.day],
+        hold = period?.entries[entry.id];
+      if (!hold || hold.status === 'settled') return;
+      if (entry.status !== 'settled') {
+        if (entry.status === 'unresolved') hold.status = 'unresolved';
+        return;
+      }
+      period.reservedMicro -= hold.reservedMicro;
+      period.spentMicro += entry.costMicro ?? 0;
+      hold.costMicro = entry.costMicro ?? 0;
+      hold.status = 'settled';
+    });
+  }
+  async repairTeamBudget(teamId: string) {
+    const account = await this.store.find<TeamBudgetAccount>(
+      'team-budget',
+      teamId,
+    );
+    if (!account) return;
+    const candidates = Object.entries(account.periods).flatMap(
+      ([day, period]) =>
+        Object.values(period.entries)
+          .filter((entry) => entry.status !== 'settled')
+          .map((entry) => ({ day, entry })),
+    );
+    const accounts = new Map<string, BudgetAccount>();
+    let repaired = 0;
+    for (const { day, entry } of candidates) {
+      if (!accounts.has(entry.owner))
+        accounts.set(
+          entry.owner,
+          await this.store.find<BudgetAccount>('budget-account', entry.owner),
+        );
+      const personal = accounts.get(entry.owner)?.periods[entry.personalPeriod]
+        ?.entries[entry.id];
+      if (
+        personal &&
+        (personal.status === 'settled' ||
+          (personal.status === 'unresolved' && entry.status !== 'unresolved'))
+      ) {
+        await this.syncTeamEntry({ id: teamId, day }, personal);
+        if (++repaired >= 200) break;
+      }
+    }
+  }
+  async teamSummary(teamId: string, dayKey = budgetDay().key) {
+    const parsed = new Date(`${dayKey}T00:00:00+07:00`);
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(dayKey) ||
+      !Number.isFinite(parsed.getTime()) ||
+      budgetDay(parsed).key !== dayKey
+    )
+      throw new ApiError(
+        400,
+        'BUDGET_PERIOD_INVALID',
+        'Ngày usage Team không hợp lệ.',
+      );
+    const account = await this.teamAccount(teamId);
+    const period = account.periods[dayKey];
+    const limit =
+      dayKey === budgetDay().key
+        ? account.dailyLimitMicro
+        : (period?.limitMicro ?? null);
+    const spent = period?.spentMicro ?? 0,
+      reserved = period?.reservedMicro ?? 0;
+    return {
+      teamId,
+      currency: account.currency,
+      timezone: 'Asia/Ho_Chi_Minh',
+      ...budgetDay(parsed),
+      policyVersion: account.policyVersion,
+      dailyLimit: limit === null ? null : limit / 1e6,
+      configuredDailyLimit:
+        account.dailyLimitMicro === null ? null : account.dailyLimitMicro / 1e6,
+      spent: spent / 1e6,
+      reserved: reserved / 1e6,
+      available:
+        limit === null ? null : Math.max(0, limit - spent - reserved) / 1e6,
+      usedPercent:
+        limit === null
+          ? null
+          : limit === 0
+            ? spent + reserved > 0
+              ? 100
+              : 0
+            : Math.min(100, ((spent + reserved) * 100) / limit),
+      unresolvedCount: Object.values(period?.entries ?? {}).filter(
+        (entry) => entry.status !== 'settled',
+      ).length,
+    };
+  }
+  async teamEntries(teamId: string, dayKey: string, page: number) {
+    const summary = await this.teamSummary(teamId, dayKey);
+    const account = await this.teamAccount(teamId);
+    const entries = Object.values(account.periods[dayKey]?.entries ?? {}).sort(
+      (a, b) =>
+        b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+    );
+    return {
+      summary,
+      items: entries.slice((page - 1) * 30, page * 30),
+      total: entries.length,
+      page,
+      limit: 30,
+    };
+  }
+  async changeTeamLimit(
+    actor: AgentUser,
+    teamId: string,
+    input: { dailyLimit: number | null; policyVersion: number; reason: string },
+  ) {
+    if (!(await this.store.find<StudioTeam>('studio-team', teamId)))
+      throw new ApiError(404, 'STUDIO_NOT_FOUND', 'Không tìm thấy Team.');
+    const limit = input.dailyLimit === null ? null : usdMicro(input.dailyLimit);
+    return adminAction(
+      this.store,
+      actor,
+      'studio.team_budget.limit_changed',
+      teamId,
+      { ...input },
+      async () => {
+        await this.mutateTeam(teamId, (account) => {
+          if (account.policyVersion !== input.policyVersion)
+            throw new ApiError(
+              409,
+              'BUDGET_CONFLICT',
+              'Hạn mức Team đã thay đổi ở tab khác. Hãy tải lại.',
+            );
+          account.dailyLimitMicro = limit;
+          account.policyVersion++;
+          const period = account.periods[budgetDay().key];
+          if (period) period.limitMicro = limit;
+        });
+        return this.teamSummary(teamId);
+      },
+    );
   }
 }

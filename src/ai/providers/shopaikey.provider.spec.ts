@@ -63,6 +63,67 @@ const imageResponse = {
 describe('ShopAIKey native GenAI provider', () => {
   afterEach(() => jest.restoreAllMocks());
 
+  it('analyzes ordered Studio images as vision, independently of the text model', async () => {
+    const provider = createProvider({
+      SHOPAIKEY_MODEL_VISION: 'test-vision',
+      SHOPAIKEY_MODEL_TEXT: 'test-text',
+    });
+    await provider.onModuleInit();
+    provider.create.mockResolvedValue({
+      candidates: [
+        { content: { parts: [{ text: '{"summary":"source and master"}' }] } },
+      ],
+    });
+    await expect(
+      provider.generateJSONImages('Observe source and master only', [
+        { mimeType: 'image/png', base64: 'c291cmNl' },
+        { mimeType: 'image/jpeg', base64: 'bWFzdGVy' },
+      ]),
+    ).resolves.toEqual({ summary: 'source and master' });
+    expect(provider.create).toHaveBeenCalledWith({
+      model: 'test-vision',
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: 'Observe source and master only' },
+            { inlineData: { mimeType: 'image/png', data: 'c291cmNl' } },
+            { inlineData: { mimeType: 'image/jpeg', data: 'bWFzdGVy' } },
+          ],
+        },
+      ],
+    });
+  });
+
+  it('forwards Studio final prompt and ordered source/master images without hidden transfer instructions', async () => {
+    const provider = createProvider();
+    await provider.onModuleInit();
+    provider.create.mockResolvedValue(imageResponse);
+    const images = [
+      { mimeType: 'image/png', base64: 'c291cmNl' },
+      { mimeType: 'image/jpeg', base64: 'bWFzdGVy' },
+    ];
+    await expect(
+      provider.composeImage({ prompt: 'FINAL STUDIO PROMPT', images }),
+    ).resolves.toEqual(Buffer.from('image'));
+    expect(provider.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: 'FINAL STUDIO PROMPT' },
+              { inlineData: { mimeType: 'image/png', data: images[0].base64 } },
+              {
+                inlineData: { mimeType: 'image/jpeg', data: images[1].base64 },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+  });
+
   it('converts native Markdown image output into bytes and retries only its download', async () => {
     const image = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex');
     const fetcher = jest

@@ -337,6 +337,35 @@ async function restore(client, file, targetName, env = process.env) {
           if (document.kind === 'company-settings')
             document.data.queuePaused = true;
           if (
+            document.kind === 'studio-idea' &&
+            document.data.state === 'approved'
+          ) {
+            document.data.state = 'changes_requested';
+            document.data.reviewNote =
+              'Khôi phục backup: kiểm tra dữ liệu và duyệt phiên bản mới trước khi chạy.';
+          }
+          if (
+            ['studio-ticket', 'studio-mockup'].includes(document.kind) &&
+            ['scheduled', 'queued', 'running', 'sample_review'].includes(
+              document.data.state,
+            )
+          ) {
+            document.data.state = 'blocked';
+            document.data.error =
+              'Khôi phục backup: cần kiểm tra và đối soát trước khi tiếp tục.';
+          }
+          if (
+            ['studio-slot', 'studio-plan', 'studio-mockup-slot'].includes(
+              document.kind,
+            ) &&
+            ['queued', 'preparing', 'submitted'].includes(document.data.state)
+          ) {
+            document.data.state = 'interrupted';
+            document.data.errorCode = 'RESTORE_REVIEW_REQUIRED';
+            document.data.error =
+              'Khôi phục backup: chưa xác định kết quả request, không tự gửi lại.';
+          }
+          if (
             document.kind === 'image-job' &&
             ['preparing', 'queued', 'running'].includes(document.data.state)
           ) {

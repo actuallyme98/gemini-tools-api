@@ -70,7 +70,9 @@ export function isBudgetError(error: unknown): boolean {
   const body = error.getResponse() as { code?: string };
   return (
     !!body.code &&
-    (body.code.startsWith('BUDGET_') || body.code === 'USER_BUDGET_EXCEEDED')
+    (body.code.startsWith('BUDGET_') ||
+      body.code.startsWith('TEAM_BUDGET_') ||
+      body.code === 'USER_BUDGET_EXCEEDED')
   );
 }
 const object = (value: unknown): Record<string, unknown> =>

@@ -7,6 +7,7 @@ import type {
 } from '@google/genai' with { 'resolution-mode': 'import' };
 import type {
   AIInputImage,
+  ComposeImageParams,
   AIProvider,
   EditImageParams,
   ReferenceImagesParams,
@@ -270,13 +271,20 @@ export abstract class GoogleGenAIProvider implements AIProvider {
   }
 
   async generateJSON(prompt: string, image?: AIInputImage): Promise<unknown> {
+    return this.generateJSONImages(prompt, image ? [image] : []);
+  }
+  async generateJSONImages(
+    prompt: string,
+    images: AIInputImage[],
+  ): Promise<unknown> {
+    const image = images.length > 0;
     this.validateConfiguration(image ? 'vision' : 'text');
     const parts: Part[] = [{ text: prompt }];
-    if (image) {
-      const data = image.base64.includes(',')
-        ? image.base64.slice(image.base64.indexOf(',') + 1)
-        : image.base64;
-      parts.push({ inlineData: { mimeType: image.mimeType, data } });
+    for (const source of images) {
+      const data = source.base64.includes(',')
+        ? source.base64.slice(source.base64.indexOf(',') + 1)
+        : source.base64;
+      parts.push({ inlineData: { mimeType: source.mimeType, data } });
     }
     await this.auditContents(
       image ? this.modelMultimodal : this.modelText,
@@ -450,5 +458,28 @@ export abstract class GoogleGenAIProvider implements AIProvider {
     }
 
     throw new Error(`No image returned from ${this.id}`);
+  }
+
+  async composeImage(params: ComposeImageParams): Promise<Buffer> {
+    const response = await this.generateImageContent(
+      [
+        {
+          role: 'user',
+          parts: [
+            { text: params.prompt },
+            ...params.images.map((image) => ({
+              inlineData: { mimeType: image.mimeType, data: image.base64 },
+            })),
+          ],
+        },
+      ],
+      params.imageModel,
+    );
+    const part = response.candidates?.[0]?.content?.parts?.find(
+      (part) => !part.thought && part.inlineData?.data,
+    );
+    if (!part?.inlineData?.data)
+      throw new Error(`No image returned from ${this.id}`);
+    return Buffer.from(part.inlineData.data, 'base64');
   }
 }

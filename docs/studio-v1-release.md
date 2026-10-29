@@ -1,5 +1,7 @@
 # Studio V1 — acceptance and release checklist
 
+Scheduling access update: only application admins may create/submit or approve an automatic (`timing=night`) selection. Team Leader membership is insufficient. Workers recheck the current admin role of both owner and approver before upstream calls. Previously scheduled selections owned/approved by non-admins will be blocked by the updated worker; do not silently change their owners or enqueue them again. Existing immediate-job review permissions are retained. Frontend paths/loading/control behavior is documented in the sibling app's `docs/routing-and-controls.md`.
+
 Studio is implemented behind disabled-by-default flags. This file describes the release procedure; writing it does not deploy, migrate production or enable paid work.
 
 ## Business configuration

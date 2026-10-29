@@ -279,18 +279,44 @@ describe('Creative Studio (isolated MongoDB; no paid calls)', () => {
     await mongo?.stop();
   });
   async function approved(override: Partial<IdeaInput> = {}) {
-    const idea = await service.saveIdea(seller, undefined, {
+    const actor = override.timing === 'night' ? admin : seller;
+    const adminSource =
+      override.timing === 'night'
+        ? await service.assets.save(
+            admin.id,
+            await sharp({
+              create: {
+                width: 64,
+                height: 64,
+                channels: 3,
+                background: '#ee8a30',
+              },
+            })
+              .png()
+              .toBuffer(),
+            { name: 'admin-idea.png', kind: 'source', category: 'POD' },
+          )
+        : undefined;
+    const idea = await service.saveIdea(actor, undefined, {
       ...input,
       ...override,
+      ...(adminSource ? { sourceId: adminSource.id } : {}),
     });
-    const pending = await service.submit(seller, idea.id, idea.revision);
-    return service.decide(leader, idea.id, pending.revision, 'approved', '');
+    const pending = await service.submit(actor, idea.id, idea.revision);
+    return service.decide(
+      actor === admin ? admin : leader,
+      idea.id,
+      pending.revision,
+      'approved',
+      '',
+    );
   }
   async function preparePlan(ticketId: string) {
+    const ticket = await store.find<StudioTicket>('studio-ticket', ticketId);
     await worker.tick();
-    await worker.executePlan(`${ticketId}-analysis`, seller.id);
+    await worker.executePlan(`${ticketId}-analysis`, ticket.owner);
     await worker.tick();
-    await worker.executePlan(`${ticketId}-briefs`, seller.id);
+    await worker.executePlan(`${ticketId}-briefs`, ticket.owner);
     await worker.tick();
   }
   it('requires authentication and hides stores/resources across teams', async () => {
@@ -489,13 +515,13 @@ describe('Creative Studio (isolated MongoDB; no paid calls)', () => {
       ticketId: ticket.id,
     });
     expect(slots).toHaveLength(1);
-    await store.patch<StudioSlot>('studio-slot', slots[0].id, seller.id, {
+    await store.patch<StudioSlot>('studio-slot', slots[0].id, ticket.owner, {
       state: 'submitted',
       leaseUntil: 0,
     });
     const before = ai.composeImage.mock.calls.length;
     await worker.tick();
-    await worker.execute(slots[0].id, seller.id);
+    await worker.execute(slots[0].id, ticket.owner);
     await worker.tick(new Date(Date.parse(ticket.dueAt) + 86400000));
     expect(ai.composeImage.mock.calls.length).toBe(before);
     expect(
@@ -1308,6 +1334,79 @@ describe('Creative Studio (isolated MongoDB; no paid calls)', () => {
         sellerIds: [seller.id],
       });
     }
+  });
+  it('rejects scheduling by sellers and leaders even with a direct API call, while admin can submit scheduled ideas', async () => {
+    for (const actor of [seller, leader]) {
+      await request(http())
+        .post('/api/agent/studio/ideas')
+        .set('Authorization', auth(actor))
+        .send({ ...input, timing: 'night' })
+        .expect(403);
+      await expect(
+        service.saveIdea(actor, undefined, { ...input, timing: 'night' }),
+      ).rejects.toThrow('Chỉ quản trị viên');
+    }
+    const draft = await service.saveIdea(seller, undefined, input);
+    await store.patch<StudioIdea>('studio-idea', draft.id, draft.owner, {
+      input: { ...input, timing: 'night' },
+    });
+    await request(http())
+      .post(`/api/agent/studio/ideas/${draft.id}/submit`)
+      .set('Authorization', auth(seller))
+      .send({ revision: draft.revision })
+      .expect(403);
+    const scheduled = await approved({ timing: 'night', count: 1 });
+    expect(scheduled.state).toBe('approved');
+    expect(
+      (await store.find<StudioTicket>('studio-ticket', scheduled.ticketId))
+        .state,
+    ).toBe('scheduled');
+  });
+  it('blocks scheduled execution if the scheduling account loses its admin role before dispatch', async () => {
+    const account = await app
+      .get(AgentAuthService)
+      .createUser(
+        `${randomUUID()}@example.test`,
+        'studio-test-password',
+        'admin',
+      );
+    const actor = await store.find<AgentUser>('user', account.id);
+    const bytes = await sharp({
+      create: { width: 32, height: 32, channels: 3, background: '#ee8a30' },
+    })
+      .png()
+      .toBuffer();
+    const image = await service.assets.save(actor.id, bytes, {
+      name: 'scheduled.png',
+      kind: 'source',
+      category: 'POD',
+    });
+    const draft = await service.saveIdea(actor, undefined, {
+      ...input,
+      sourceId: image.id,
+      timing: 'night',
+      count: 1,
+    });
+    const pending = await service.submit(actor, draft.id, draft.revision);
+    const idea = await service.decide(
+      actor,
+      draft.id,
+      pending.revision,
+      'approved',
+      '',
+    );
+    await store.patch<AgentUser>('user', actor.id, actor.owner, {
+      role: 'designer',
+    });
+    const imageCalls = ai.composeImage.mock.calls.length;
+    await worker.tick(new Date(Date.parse(idea.dueAt) + 1000));
+    await worker.tick(new Date(Date.parse(idea.dueAt) + 2000));
+    const ticket = await store.find<StudioTicket>(
+      'studio-ticket',
+      idea.ticketId,
+    );
+    expect(ticket.state).toBe('blocked');
+    expect(ai.composeImage.mock.calls.length).toBe(imageCalls);
   });
   it('lets only admins change the daily schedule, freezes approved dates and separates different cutoffs on the same day', async () => {
     const path = '/api/agent/studio/operations/schedule';

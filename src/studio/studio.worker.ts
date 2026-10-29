@@ -392,6 +392,8 @@ export class StudioWorker
         'STUDIO_ACCESS_REVOKED',
         'Tài khoản gửi hoặc duyệt đã bị khóa.',
       );
+    this.studio.assertScheduleAccess(owner, ticket.snapshot.input);
+    this.studio.assertScheduleAccess(approver, ticket.snapshot.input);
     const [shop] = await Promise.all([
       this.studio.shop(owner, ticket.storeId),
       this.studio.shop(approver, ticket.storeId, true),

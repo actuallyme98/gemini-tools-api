@@ -494,7 +494,16 @@ export class StudioService {
       },
     );
   }
+  assertScheduleAccess(user: AgentUser, input: IdeaInput) {
+    if (input.timing === 'night' && user.role !== 'admin')
+      throw new ApiError(
+        403,
+        'STUDIO_SCHEDULE_ADMIN_ONLY',
+        'Chỉ quản trị viên được sử dụng lịch chạy tự động.',
+      );
+  }
   async validateDraft(user: AgentUser, input: IdeaInput) {
+    this.assertScheduleAccess(user, input);
     if (input.sampleCount !== undefined && input.sampleCount > input.count)
       throw new ApiError(
         400,
@@ -623,6 +632,7 @@ export class StudioService {
     note: string,
   ) {
     const idea = await this.idea(user, id, true);
+    if (decision === 'approved') this.assertScheduleAccess(user, idea.input);
     if (
       decision === 'approved' &&
       idea.input.timing === 'night' &&

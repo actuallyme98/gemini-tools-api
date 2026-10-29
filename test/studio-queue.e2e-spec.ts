@@ -177,8 +177,8 @@ describe('Studio scheduler and BullMQ (real local Redis/Mongo, mocked AI only)',
     const users: AgentUser[] = [];
     for (const [name, role] of [
       ['admin', 'admin'],
-      ['seller1', 'designer'],
-      ['seller2', 'designer'],
+      ['seller1', 'admin'],
+      ['seller2', 'admin'],
     ] as const) {
       const user = await auth.createUser(
         `${name}@queue.test`,

@@ -186,3 +186,8 @@ bash scripts/container-smoke.sh gemini-tools-api:ci
 ```
 
 API CORS: `CORS_ALLOWED_ORIGINS=https://tools.lcgmedia.uk`. Trong giai đoạn chuyển đổi có thể thêm `https://lcgmedia.uk` vào danh sách, ngăn cách bằng dấu phẩy. Giữ cấu hình CORS R2 hiện có của EziHubb và thêm riêng `GET`/`HEAD` cho origin mới.
+
+
+### Release checks after the November 2 audit
+
+CI checks run on Ubuntu 24.04 to match the supported Playwright/MongoDB test environment rather than following `ubuntu-latest` OS upgrades. API production dependencies use Joi >=18.3.1 for GHSA-4528-x5fx-h6hg and Google Auth Library >=10.9.1 to avoid the vulnerable rimraf/glob chain. Existing major versions, high-severity audit gates and all tests remain in force.

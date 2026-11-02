@@ -1,4 +1,5 @@
 import sharp from 'sharp';
+import { preserveReferenceScene } from './studio-mockup-prompt';
 import type {
   CreativeBrief,
   StudioPrintSpec,
@@ -11,7 +12,8 @@ export function artworkPrompt(snapshot: StudioSnapshot, brief: CreativeBrief) {
     `Yêu cầu: ${snapshot.input.brief}\nSản phẩm: ${snapshot.product.instructions}`,
     `SKILL.md:\n${snapshot.skill.instructions}\n${(snapshot.skill.documents ?? []).map((d) => d.content).join('\n')}`,
     `Brief của mẫu này: ${JSON.stringify(brief)}`,
-    'Trong bước artwork chỉ áp dụng quy tắc sáng tạo nội dung của bộ hướng dẫn; phần chụp sản phẩm, bối cảnh và phối cảnh của bộ hướng dẫn được thực hiện ở bước thumbnail sau. Ở đây chỉ trả về thiết kế phẳng độc lập.',
+    'Trong bước artwork chỉ trích xuất và phát triển CHỮ/MOTIF/BỐ CỤC IN từ ảnh nguồn. ẢNH 2 không phải ảnh nền để chỉnh sửa hoặc vật thể cần tái tạo. Mô tả sản phẩm, master, brief và skill có nhắc vải dệt, đường may, bo viền, chất liệu, chụp ảnh hoặc bối cảnh chỉ là ngữ cảnh cho bước thumbnail; không đưa những chi tiết vật lý đó vào artwork.',
+    'Đầu ra phải là nội dung thiết kế phẳng nhìn chính diện, phủ vùng canvas theo tỷ lệ quy chuẩn, không phải hình một sản phẩm đặt trên nền trắng. Không vẽ silhouette/vỏ sản phẩm, mép dày hoặc góc bo của vật thể, đường may, texture vải, bóng đổ, phối cảnh hay lề trắng bên ngoài sản phẩm. Chỉ giữ đường viền trang trí khi nó là nội dung in được yêu cầu, không dựng viền vật lý của sản phẩm.',
     snapshot.product.printSpec
       ? `Quy chuẩn file: ${JSON.stringify(snapshot.product.printSpec)}. Không coi metadata DPI là bằng chứng chất lượng in. Nền ${snapshot.product.printSpec.background === 'transparent' ? 'trong suốt thực sự, không vẽ bàn cờ' : 'trắng'}.`
       : 'Dùng nền trắng, không thêm bối cảnh. File cần người dùng kiểm tra quy chuẩn kích thước trước sản xuất.',
@@ -21,6 +23,7 @@ export function thumbnailPrompt(snapshot: StudioSnapshot) {
   return [
     'ẢNH 1 là ARTWORK GỐC đã tạo. ẢNH 2 là MẪU ẢNH SẢN PHẨM ĐÍCH.',
     'Giữ nguyên hình học, nền, ánh sáng, góc chụp, chất liệu và số lượng sản phẩm trong ẢNH 2. Chỉ áp nguyên thiết kế ẢNH 1 lên đúng vùng in tương ứng, căn phối cảnh phù hợp.',
+    preserveReferenceScene,
     'Không sáng tác lại artwork: giữ toàn bộ chữ, bố cục, tỉ lệ và màu thiết kế. Không đảo vai trò hai ảnh. Không thêm watermark, logo công cụ hoặc chữ ký.',
     `Quy tắc mẫu ảnh chính: ${snapshot.thumbnail.instructions}`,
   ].join('\n\n');
@@ -44,7 +47,7 @@ export async function prepareArtwork(buffer: Buffer, spec?: StudioPrintSpec) {
   if (spec?.background === 'white')
     image = image.flatten({ background: '#fff' });
   const notes = [
-    'File artwork phẳng; cần kiểm tra chữ, motif và watermark trước sử dụng.',
+    'Ảnh do AI tạo; cần kiểm tra thiết kế in phẳng, chữ, motif, viền/bóng sản phẩm và watermark trước sử dụng.',
   ];
   if (!spec)
     notes.push(

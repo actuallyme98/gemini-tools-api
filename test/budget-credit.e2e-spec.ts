@@ -15,7 +15,7 @@ describe('Provider credit accounting (isolated MongoDB, no paid requests)', () =
     budget: BudgetService,
     user: AgentUser;
   const spec = {
-    provider: 'shopaikey',
+    provider: 'shopaikey' as const,
     model: 'gemini-2.5-flash',
     operation: 'text' as const,
   };

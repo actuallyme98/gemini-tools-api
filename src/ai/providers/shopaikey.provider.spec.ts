@@ -469,7 +469,7 @@ describe('ShopAIKey native GenAI provider', () => {
           baseUrl: 'https://direct.shopaikey.com',
           apiVersion: 'v1beta',
           headers: { Authorization: 'Bearer test-shop-key' },
-          timeout: 180000,
+          timeout: 300000,
         },
       },
     ]);

@@ -1,6 +1,7 @@
 import {
   backgroundSuggestionsPrompt,
   mockupPrompt,
+  preserveReferenceScene,
   readBackgroundSuggestions,
 } from './studio-mockup-prompt';
 describe('Mockup image roles and background suggestions', () => {
@@ -14,6 +15,7 @@ describe('Mockup image roles and background suggestions', () => {
     expect(template).toContain('ẢNH ĐÍCH');
     expect(template).toContain('Giữ cảnh, background');
     expect(template).toContain('Không tạo watermark');
+    expect(template).toContain(preserveReferenceScene);
     const background = mockupPrompt(
       { name: 'Vườn', kind: 'background', instructions: 'Nền vườn buổi sáng' },
       'đen',
@@ -22,6 +24,7 @@ describe('Mockup image roles and background suggestions', () => {
     expect(background).toContain('Chỉ thay nền');
     expect(background).not.toContain('ẢNH 2');
     expect(background).not.toContain('Giữ cảnh, background');
+    expect(background).not.toContain(preserveReferenceScene);
     expect(background).toContain('Nền vườn buổi sáng');
     expect(background).toContain('không đổi màu chữ');
   });

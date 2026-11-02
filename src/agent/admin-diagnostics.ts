@@ -144,8 +144,6 @@ export async function readAdminDiagnostics(
     new Date(query.day).toISOString().slice(0, 10) !== query.day
   )
     throw new ApiError(400, 'ADMIN_LOG_DATE_INVALID', 'Ngày log không hợp lệ.');
-  const day = path.resolve(directory, query.day);
-  const file = path.join(day, 'events.jsonl');
   const empty = {
     items: [] as Record<string, unknown>[],
     nextCursor: null as number | null,
@@ -154,6 +152,9 @@ export async function readAdminDiagnostics(
   };
   let handle: Awaited<ReturnType<typeof fs.open>>;
   try {
+    const root = await fs.realpath(directory);
+    const day = path.join(root, query.day);
+    const file = path.join(day, 'events.jsonl');
     if ((await fs.realpath(day)) !== day) throw new Error('Symlink directory');
     if ((await fs.realpath(file)) !== file) throw new Error('Symlink file');
     handle = await fs.open(

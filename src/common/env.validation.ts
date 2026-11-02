@@ -107,7 +107,7 @@ export const envValidationSchema = Joi.object({
     .integer()
     .min(1000)
     .max(600000)
-    .default(180000),
+    .default(300000),
 
   PORT: Joi.number().integer().min(1).max(65535).default(5177),
   CORS_ALLOWED_ORIGINS: Joi.string()

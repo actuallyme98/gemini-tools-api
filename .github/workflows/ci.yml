@@ -37,6 +37,7 @@ jobs:
       - run: npm ci
       - run: npm audit --omit=dev --audit-level=high
       - run: npm run lint:check
+      - run: npm run typecheck
       - run: npm test -- --runInBand
       - run: npm run test:e2e -- --runInBand
       - run: node --test test/agent-mongodb.test.cjs

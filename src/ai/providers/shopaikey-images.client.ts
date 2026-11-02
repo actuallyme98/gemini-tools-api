@@ -246,7 +246,7 @@ export class ShopAIKeyImagesClient {
           headers,
           body,
           signal: AbortSignal.timeout(
-            this.config.get<number>('SHOPAIKEY_IMAGE_TIMEOUT_MS', 180000),
+            this.config.get<number>('SHOPAIKEY_IMAGE_TIMEOUT_MS', 300000),
           ),
         },
       );

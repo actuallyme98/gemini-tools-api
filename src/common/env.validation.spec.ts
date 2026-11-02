@@ -78,7 +78,7 @@ describe('AI environment configuration', () => {
       SHOPAIKEY_MODEL_TEXT: 'gemini-2.5-flash',
       SHOPAIKEY_MODEL_VISION: 'gemini-2.5-flash',
       SHOPAIKEY_TIMEOUT_MS: 60000,
-      SHOPAIKEY_IMAGE_TIMEOUT_MS: 180000,
+      SHOPAIKEY_IMAGE_TIMEOUT_MS: 300000,
     });
     expect(value).not.toHaveProperty('SHOPAIKEY_MODEL_IMAGE');
   });

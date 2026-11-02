@@ -329,3 +329,30 @@ describe('ShopAIKey GPT and Grok image editing', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('ShopAIKey image request deadlines', () => {
+  afterEach(() => jest.restoreAllMocks());
+  it.each([undefined, 240000])(
+    'uses the image deadline without retrying a timed-out paid request (%s)',
+    async (custom) => {
+      const settings = config();
+      if (custom !== undefined)
+        settings.set('SHOPAIKEY_IMAGE_TIMEOUT_MS', custom);
+      const deadline = jest.spyOn(AbortSignal, 'timeout');
+      const fetcher = jest
+        .spyOn(global, 'fetch')
+        .mockRejectedValue(
+          new DOMException('Deadline exceeded', 'TimeoutError'),
+        );
+      await expect(
+        new ShopAIKeyImagesClient(settings).generate(
+          'gpt-image-2-all',
+          'Keep design',
+          [original],
+        ),
+      ).rejects.toThrow('Deadline exceeded');
+      expect(deadline).toHaveBeenCalledWith(custom ?? 300000);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
+});

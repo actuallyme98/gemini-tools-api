@@ -2,6 +2,9 @@ import * as Joi from 'joi';
 import { ApiError } from '../common/api-error';
 import type { MockupScene } from './studio-mockup.types';
 
+export const preserveReferenceScene =
+  'Chỉ sửa vùng sản phẩm/vùng in cần ghép trong ảnh đích; mọi vùng khác phải giữ nguyên. Giữ nguyên kích thước và tỷ lệ khung hình, góc máy, hình học, vị trí vật thể, background, ánh sáng và bóng của ảnh đích. Giữ đúng phong cách gốc, kể cả ảnh minh họa hoặc vector; không chuyển thành ảnh chụp, không làm đẹp, relight, thêm texture hay vẽ lại cảnh. Không dùng phong cách hoặc nền của ảnh nguồn để thay đổi ảnh đích.';
+
 const preserve =
   'Giữ nguyên thiết kế nguồn: chữ, tên, logo thuộc thiết kế, hình in, màu sắc, chi tiết, tỷ lệ và kích thước tương đối. Không vẽ lại, lật gương, cắt thiết kế hay tự thêm chi tiết. Chỉ điều chỉnh phối cảnh và ánh sáng cần thiết để phù hợp bề mặt.';
 export function mockupPrompt(
@@ -13,6 +16,7 @@ export function mockupPrompt(
     scene.kind === 'background'
       ? 'ẢNH 1 là ảnh sản phẩm NGUỒN và là ảnh cần chỉnh sửa. Chỉ thay nền theo yêu cầu bên dưới; giữ sản phẩm nguyên vẹn, không redesign sản phẩm và không thêm sản phẩm khác. Không có ảnh tham chiếu thứ hai.'
       : 'ẢNH 1 là sản phẩm/thiết kế NGUỒN. ẢNH 2 là ảnh mockup THAM CHIẾU và là ẢNH ĐÍCH cần chỉnh sửa. Trả về phiên bản đã chỉnh sửa của ẢNH 2, không phải ẢNH 1. Giữ cảnh, background, bố cục, người mẫu, tư thế, ánh sáng và số lượng sản phẩm của ẢNH 2. Thay sản phẩm/thiết kế tương ứng trong ẢNH 2 bằng nguồn từ ẢNH 1, tại tất cả vị trí tương ứng. Không đảo chiều hai ảnh.',
+    ...(scene.kind === 'background' ? [] : [preserveReferenceScene]),
     preserve,
     color
       ? `Chỉ đổi màu vật liệu sản phẩm thành ${color}; không đổi màu chữ hoặc hình in.`

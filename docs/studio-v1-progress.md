@@ -103,3 +103,14 @@ No automatic promotion of AI output to production-ready, no pixel-perfect claim 
 - Legacy browser regression subset: root authentication, session restoration, default legacy workspace/asset reuse/export, edited prompt/model lock/history/export passed.
 - Screenshot review at 1440px and 390px: main page scroll and content fit confirmed. These screenshots use test fixtures, not production metrics.
 - Imported the supplied SK02 v2.2 ZIP into an isolated temporary MongoDB with in-memory R2 substitute: 25 file entries, 16 stored context images, 1 master, 5 active instruction documents (including SKILL.md), declared version `2.2-creative-approved`, ready/pending approval, no dependency issues, original ZIP restored byte-for-byte. SHA-256 `75e577322d091c42941625b55aab89e0af4eb8f853c0e25df58d893b302291c1`. No paid model calls or production imports.
+
+
+## 2026-11-02 — local audit corrections
+
+- Admin diagnostics canonicalizes the configured log root before validating day/file paths. macOS parent aliases are supported; linked day directories/journal files remain rejected and `O_NOFOLLOW` remains in use.
+- Budget/provider-routing test fixtures now preserve provider literal types and model-bearing mock arguments, allowing whole-repository TypeScript checks without weakening assertions. `npm run typecheck` is also required by CI so transpile-only tests cannot hide these errors again.
+- Image deadlines default to 300 seconds; explicit deployed environment settings are unchanged. Unknown outcomes remain held for reconciliation, without paid retries or automatic model substitution.
+- New artwork prompts distinguish printable content from physical product/material/master-photo instructions. New reference mockups/thumbnails explicitly preserve the target's original style, canvas, lighting and surroundings. Existing immutable slot prompts/results are retained.
+- The artwork review UI now names physical borders, stitching, shadows and external white margins as rejection criteria. File dimensions/DPI remain technical checks only; no extra paid validator or claim of automatic print acceptance was added.
+
+These changes address deterministic audit failures and strengthen generation/review instructions. Real output quality and the timed-out production model still require a controlled provider recheck; mock/unit/static success does not establish those outcomes. No production environment or data was changed.

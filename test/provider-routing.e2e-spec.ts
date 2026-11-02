@@ -63,11 +63,13 @@ const adapter = (id: string, capabilities: AIProvider['capabilities']) => ({
       Promise.resolve(image ? analysis : ['scene']),
   ),
   generateImage: jest.fn(() => Promise.resolve(png)),
-  editImage: jest.fn(() => Promise.resolve(png)),
-  generateImagesFromReferalImages: jest.fn(() => Promise.resolve([png])),
-  replaceBackground: jest.fn(() =>
-    Promise.resolve({ buffer: png, mimeType: 'image/png' }),
-  ),
+  editImage: jest.fn<Promise<Buffer>, [unknown]>().mockResolvedValue(png),
+  generateImagesFromReferalImages: jest
+    .fn<Promise<Buffer[]>, [unknown]>()
+    .mockResolvedValue([png]),
+  replaceBackground: jest
+    .fn<Promise<{ buffer: Buffer; mimeType: string }>, [unknown]>()
+    .mockResolvedValue({ buffer: png, mimeType: 'image/png' }),
 });
 
 describe('Client-selected provider routing', () => {

@@ -217,7 +217,7 @@ export class ShopAIKeyProvider extends GoogleGenAIProvider {
         apiVersion: 'v1beta',
         headers: { Authorization: `Bearer ${apiKey}` },
         timeout: forImages
-          ? this.config.get<number>('SHOPAIKEY_IMAGE_TIMEOUT_MS', 180000)
+          ? this.config.get<number>('SHOPAIKEY_IMAGE_TIMEOUT_MS', 300000)
           : this.config.get<number>('SHOPAIKEY_TIMEOUT_MS', 60000),
       },
     };

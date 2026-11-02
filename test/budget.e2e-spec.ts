@@ -37,7 +37,7 @@ describe('Weekly employee budgets (real standalone MongoDB)', () => {
     adminToken: string,
     employeeToken: string;
   const spec = {
-    provider: 'shopaikey',
+    provider: 'shopaikey' as const,
     model: 'test-image',
     operation: 'image' as const,
   };

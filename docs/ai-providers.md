@@ -62,14 +62,14 @@ SHOPAIKEY_MODEL_TEXT=gemini-2.5-flash
 SHOPAIKEY_MODEL_VISION=gemini-2.5-flash
 SHOPAIKEY_MODEL_IMAGE=your-available-image-model
 SHOPAIKEY_TIMEOUT_MS=60000
-SHOPAIKEY_IMAGE_TIMEOUT_MS=180000
+SHOPAIKEY_IMAGE_TIMEOUT_MS=300000
 ```
 
 Xóa hoặc đổi các `AI_TEXT_PROVIDER`, `AI_VISION_PROVIDER`, `AI_IMAGE_PROVIDER` đã đặt trước đó nếu muốn cả ba tác vụ dùng `AI_PROVIDER=shopaikey`.
 
 `SHOPAIKEY_MODEL_IMAGE` bắt buộc khi chọn ShopAIKey cho tác vụ image. Dùng model Gemini native, GPT Image hoặc Grok Imagine có trong catalog và được cấp cho tài khoản; adapter không gọi endpoint Nano Banana riêng nên không dùng các alias `nano-banana`, `nano-banana-2`, `nano-banana-pro` của endpoint đó. Model text/vision mặc định là `gemini-2.5-flash`; có thể đổi riêng.
 
-Tác vụ ảnh dùng Direct endpoint mặc định theo khuyến nghị của nhà cung cấp cho các request dài. Timeout text/vision mặc định 60 giây (cấu hình 1–300 giây), timeout ảnh 180 giây (1–600 giây). Lời gọi Gemini ảnh yêu cầu `responseModalities: ['TEXT', 'IMAGE']`; GPT/Grok yêu cầu `response_format: 'b64_json'`. Không gọi API lúc khởi động để kiểm tra model hay tài khoản; cần smoke test bằng credential thực tế. Số lượng `variations` được thực thi tại IdeaService bằng từng lần gọi image provider, tạo đúng số ảnh được yêu cầu (1–10).
+Tác vụ ảnh dùng Direct endpoint mặc định theo khuyến nghị của nhà cung cấp cho các request dài. Timeout text/vision mặc định 60 giây (cấu hình 1–300 giây), timeout ảnh 300 giây (1–600 giây). Lời gọi Gemini ảnh yêu cầu `responseModalities: ['TEXT', 'IMAGE']`; GPT/Grok yêu cầu `response_format: 'b64_json'`. Không gọi API lúc khởi động để kiểm tra model hay tài khoản; cần smoke test bằng credential thực tế. Số lượng `variations` được thực thi tại IdeaService bằng từng lần gọi image provider, tạo đúng số ảnh được yêu cầu (1–10).
 
 Có thể kết hợp các provider:
 
@@ -108,3 +108,8 @@ All multipart image endpoints accept an optional provider field (e.g. gemini, sh
 A selected provider handles its configured capabilities. Every AI step uses the explicitly selected provider. Unsupported or unconfigured capabilities return HTTP 400; the sidebar marks them as unavailable with null routing. No request-time fallback occurs. Multi-step and batch endpoints validate all required capabilities before any paid AI generation. Unknown IDs or providers with no configured capabilities also return HTTP 400. Startup still validates all system defaults strictly.
 
 Availability means local configuration is complete, not a live upstream status check. Register new adapters in AI_PROVIDERS and optionally provide a name for the client label.
+
+
+## Post-audit image deadlines (2026-11-02)
+
+The default `SHOPAIKEY_IMAGE_TIMEOUT_MS` is now 300000 ms for both native GenAI and Images API requests. Explicit environment overrides remain authoritative (valid range 1000–600000 ms); an existing production value of 180000 is not changed by updating code. This increases the allowed wait, not proof that a particular model is healthy. A timeout or unknown provider result still retains its reservation and must not trigger automatic retry/model fallback. No live environment, key or pricing policy was changed for this correction.

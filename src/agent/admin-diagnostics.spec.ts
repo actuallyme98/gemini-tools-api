@@ -63,3 +63,73 @@ describe('admin request diagnostics', () => {
     }
   });
 });
+
+describe('local audit regression', () => {
+  it('reads an ordinary journal under the operating system temporary directory', async () => {
+    const directory = await fs.mkdtemp(
+      path.join(os.tmpdir(), 'audit-valid-log-'),
+    );
+    const day = '2026-11-02';
+    try {
+      await fs.mkdir(path.join(directory, day));
+      await fs.writeFile(
+        path.join(directory, day, 'events.jsonl'),
+        JSON.stringify({
+          event: 'http_completed',
+          requestId: 'local-audit',
+          status: 200,
+        }) + '\n',
+      );
+      const result = await readAdminDiagnostics(directory, {
+        day,
+        cursor: 0,
+        limit: 50,
+        search: '',
+        errorsOnly: false,
+      });
+      expect(result.items).toEqual([
+        expect.objectContaining({ requestId: 'local-audit', status: 200 }),
+      ]);
+    } finally {
+      await fs.rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+it('accepts a configured root alias but rejects a linked journal file', async () => {
+  const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'admin-log-root-'));
+  const query = {
+    day: '2026-11-02',
+    cursor: 0,
+    limit: 50,
+    search: '',
+    errorsOnly: false,
+  };
+  try {
+    const root = path.join(directory, 'actual');
+    const alias = path.join(directory, 'alias');
+    await fs.mkdir(path.join(root, query.day), { recursive: true });
+    const journal = path.join(root, query.day, 'events.jsonl');
+    await fs.writeFile(
+      journal,
+      JSON.stringify({ requestId: 'root-alias', status: 200 }) + '\n',
+    );
+    await fs.symlink(
+      root,
+      alias,
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    expect((await readAdminDiagnostics(alias, query)).items).toEqual([
+      expect.objectContaining({ requestId: 'root-alias' }),
+    ]);
+    if (process.platform !== 'win32') {
+      await fs.rename(journal, path.join(root, 'private.jsonl'));
+      await fs.symlink(path.join(root, 'private.jsonl'), journal);
+      await expect(readAdminDiagnostics(alias, query)).rejects.toMatchObject({
+        status: 503,
+      });
+    }
+  } finally {
+    await fs.rm(directory, { recursive: true, force: true });
+  }
+});
